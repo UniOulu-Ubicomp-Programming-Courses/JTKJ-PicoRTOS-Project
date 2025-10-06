@@ -10,7 +10,7 @@
 #include "pico/cyw43_arch.h"
 
 #ifndef LED_DELAY_MS
-#define LED_DELAY_MS 1000
+#define LED_DELAY_MS 3000
 #endif
 
 // Perform initialisation
