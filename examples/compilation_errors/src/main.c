@@ -2,6 +2,8 @@
 #include <time.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <FreeRTOS.h>
+#include <task.h>
 
 #include "pico/stdlib.h"
 #include "pico/stdio.h"
@@ -11,6 +13,7 @@
 #define TEMP_MAX        40
 #define LUX_MIN         100
 #define LUX_MAX         1500
+#define BUFFER_SIZE     30
 
 static volatile int temp; 
 static volatile int lux;
@@ -48,7 +51,7 @@ static int rand_in_range(int min, int max) {
  *  @note The task runs indefinitely with a 1-second delay between updates.
  *  
  */
-static void sensorTask (void *arg){
+static void sensorTask (void *arg) {
     
     while (1) {
         //Generated random numbers
@@ -101,8 +104,9 @@ int main (void) {
     TaskHandle_t myPrintHandle = NULL;
 
     // Create tasks
-    xTaskCreate(printingTask, "print", 1024, NULL, 3, &myPrintHandle);
+    xTaskCreate(printTask, "print", 1024, NULL, 3, &myPrintHandle);
     xTaskCreate(sensorTask, "usb", 1024, NULL, 2, &mySensorHandle);
 
     vTaskStartScheduler();
 
+}
