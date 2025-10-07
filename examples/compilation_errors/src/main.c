@@ -86,7 +86,7 @@ static void printTask(void *arg) {
     while (1) {
         TickType_t ticks = xTaskGetTickCount();
         uint32_t ms = ticks * portTICK_PERIOD_MS;
-        sprintf(buf,"time:%d,temp:%d,lux:%d\n",(unsigned long)ms,temp,lux);
+        sprintf(buf,"temp:%03d,lux:%03d\n",temp,lux);
         stdio_puts(buf);
 
         vTaskDelay(pdMS_TO_TICKS(1500));
