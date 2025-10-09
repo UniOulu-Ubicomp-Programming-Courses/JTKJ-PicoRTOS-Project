@@ -60,6 +60,7 @@
         "compare": "c",
         "cstdint": "c",
         "string.h": "c",
-        "cstdio": "c"
+        "cstdio": "c",
+        "queue.h": "c"
     }
 }
