@@ -1,0 +1,53 @@
+name: Doxygen → GitHub Pages
+
+on:
+  push:
+    branches: [ main ]   # change if your default branch is different
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Doxygen & Graphviz
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen graphviz
+
+      - name: Build docs with Doxygen
+        working-directory: ./libs/TKJHAT/docs
+        run: doxygen Doxyfile
+
+      # Sanity check the expected output path
+      - name: Check output exists
+        run: |
+          test -f libs/TKJHAT/docs/out/html/index.html || (echo "Missing libs/TKJHAT/docs/out/html/index.html"; exit 1)
+
+      # Upload exactly what Doxygen generated
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: libs/TKJHAT/docs/out/html
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

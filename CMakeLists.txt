@@ -10,7 +10,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Define project name
 set(APP_NAME JTKJ_app) 
 # Define main app (app in this folder)
-set(MAIN_TARGET hello_blink)
+set(MAIN_TARGET hat_app)
 #===============================================================================================
 
 # Initialise pico_sdk from installed location
@@ -82,14 +82,19 @@ add_subdirectory(libs/usb-serial-debug)
 # ===============================================================================================
 
 # DO NOT EDIT: Prepare build to compile the different examples ==================================
-# Add examples
-add_subdirectory(examples/hello_pico)
-add_subdirectory(examples/hello_freertos)
-add_subdirectory(examples/hello_dual_cdc)
-add_subdirectory(examples/hello_microphone)
-add_subdirectory(examples/hello_hat)
+# Add examples if necessary here
+# Uncomment the examples that you want to include in your project.
+#
+add_subdirectory(examples/hello_blink)
 add_subdirectory(examples/hello_blink_freertos)
-add_subdirectory(examples/compilation_errors)
+# add_subdirectory(examples/hello_pico)
+# add_subdirectory(examples/hello_freertos)
+add_subdirectory(examples/hello_dual_cdc)
+# add_subdirectory(examples/hello_microphone)
+# add_subdirectory(examples/compilation_errors)
+add_subdirectory(examples/hello_hat)
+add_subdirectory(examples/hat_example)
+#
 # You can edit it if you want to add new examples
 # ==============================================================================================
 
@@ -109,10 +114,13 @@ add_executable(${MAIN_TARGET}
 #   * FreeRTOS-Kernel -> FreeRTOS functions: tasks queues, timers, lists ...
 #   * FreeRTOS-Kernel-Heap4 -> Memory allocators for FreeRTOS
 #   * TKJHAT_SDK -> SDK to control the HAT
-#   * cfg-dual-usbcdc -> Auxiliar library which creates two serial ports one for sending data an the other for debug
-
+#   * usb_serial_debug -> Auxiliar library which creates two serial ports one for sending data an the other for debug
+#
 target_link_libraries(${MAIN_TARGET}
         pico_stdlib
+        FreeRTOS-Kernel
+        FreeRTOS-Kernel-Heap4
+        TKJHAT_SDK
 )
 
 # Include libraries necessaries to control the WiFi. If you are using the internal pico LED in W model, it is also 

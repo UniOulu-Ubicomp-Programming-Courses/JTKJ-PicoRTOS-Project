@@ -67,9 +67,8 @@ SOFTWARE.
  *
  * int main(void) {
  *     stdio_init_all();
- *     init_i2c_default; // set up I2C first
  *
- *     init_hat_sdk();          // put board in a known state (e.g., RGB off)
+ *     init_hat_sdk();          // put board in a known state (e.g., RGB off) and start default i2c
  *     init_red_led();          // optional: prepare red LED
  *     init_rgb_led();          // optional: enable RGB PWM
  *
@@ -86,8 +85,8 @@ SOFTWARE.
  * @endcode
  *
  * ### Notes
- * - `init_hat_sdk()` only prepares the board state (e.g., turns RGB LED off). It does **not**
- *   initialize peripherals; call the per-device init functions you need.
+ * - `init_hat_sdk()` only prepares the board state (e.g., turns RGB LED off) and initialize default I2C to connect the peripherals
+ *    It does **not** initialize peripherals; call the per-device init functions you need.
  *
  * ### Dependencies
  * - Raspberry Pi Pico SDK (GPIO, PWM, I2C, PIO, DMA where applicable)
@@ -217,6 +216,7 @@ SOFTWARE.
  * @brief Initialize the HAT SDK.
  *
  * This function performs the initial setup of the HAT board.
+ * Starts the default I2C for communicating with devices.
  * It does not initialize any peripherals.
  */
 void init_hat_sdk(void);
@@ -238,6 +238,17 @@ void init_hat_sdk(void);
 void init_sw1(void);
 
 /**
+ * @brief Initializes button 1 (same as SW1).
+ *
+ * This function is a wrapper for @ref init_sw1, performing the same initialization
+ * as the SW1 switch setup. It configures GPIO 2 as a digital input using the 
+ * hardware pull-down resistor.
+ *
+ * @see init_sw1()
+ */
+void init_button1(void);
+
+/**
  * @brief Initialize switch SW2 (GPIO 22).
  *
  * Configures SW2 as a digital input with no pull resistors enabled. It uses hardware pull-down resistors.
@@ -246,6 +257,17 @@ void init_sw1(void);
  * @note SW2 is active-hig (pressed = 1, released = 0) 
  */
 void init_sw2(void);
+
+/**
+ * @brief Initializes button2 (same as SW2).
+ *
+ * This function is a wrapper for @ref init_sw2, performing the same initialization
+ * as the SW2 switch setup. It configures GPIO 22 as a digital input using the 
+ * hardware pull-down resistor.
+ *
+ * @see init_sw2()
+ */
+void init_button2(void);
 
 
 /* =========================
@@ -942,7 +964,7 @@ int ICM42670_enable_accel_gyro_ln_mode(void);
  *
  * @return 0 on success, negative error code from the first failing call.
  */
-int start_sensor_with_default_values(void);
+int ICM42670_start_with_default_values(void);
 
 /**
  * @brief Read accelerometer, gyroscope, and temperature data.

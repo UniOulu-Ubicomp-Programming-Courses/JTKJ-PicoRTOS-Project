@@ -1,3 +1,5 @@
+# Remember to uncomment in the root CMakeLists.txt the corresponding add_subdirectory if you want to include this application in your project
+
 set(DEFAULT_TARGET compilation_error)
 
 add_executable(${DEFAULT_TARGET}

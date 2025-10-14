@@ -5,10 +5,10 @@
 #include <pico/stdlib.h>
 #include <pico/stdio.h>
 
-#include <tusb.h>
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include <tusb.h>
 #include "usbSerialDebug/helper.h"
 
 #define BUFFER_SIZE     30
@@ -83,11 +83,6 @@ static void usbTask(void *arg) {
 }
 
 int main (void) {
-    // Initialize TinyUSB first
-    tusb_init();
-    //Initialize helper library to write in CDC0)
-    usb_serial_init();
-   
     //Generating random seed
     srand((unsigned)time(NULL));
 
@@ -99,7 +94,14 @@ int main (void) {
     #if (configNUMBER_OF_CORES > 1)
         vTaskCoreAffinitySet(hUsb, 1u << 0);
     #endif
-
+    
+    // VERY IMPORTANT, THIS SHOULD GO JUST BEFORE vTaskStartSheduler
+    // WITHOUT ANY DELAYS. OTHERWISE, THE TinyUSB stack wont recognize
+    // the device.
+    // Initialize TinyUSB 
+    tusb_init();
+    //Initialize helper library to write in CDC0)
+    usb_serial_init();
     vTaskStartScheduler();
 
 }
