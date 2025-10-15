@@ -68,6 +68,9 @@ SOFTWARE.
 void init_hat_sdk(){
     //Turn off the RGB
     stop_rgb_led();
+
+    //Start the I2C
+    init_i2c_default();
 }
 
 /* =========================
@@ -85,6 +88,14 @@ void init_hat_sdk(){
     // Initialize the button pin as an input with a pull-up resistor
     gpio_init(SW2_PIN);
     gpio_set_dir(SW2_PIN, GPIO_IN);
+}
+
+void init_button1(){
+    return init_sw1();
+}
+
+void init_button2(){
+    return init_sw2();
 }
 
 /* =========================
@@ -105,7 +116,7 @@ void toggle_red_led() {
     gpio_put(RED_LED_PIN, !curr);
 }
 
-void toglle_led() {
+void toggle_led() {
     return toggle_red_led();
 }
 
@@ -522,19 +533,28 @@ void init_veml6030() {
 // Ligt in LUX
 // Note: sampling time should be > IT -> in this case it has been 100ms by defintion. 
 uint32_t veml6030_read_light() {
-    uint8_t reg = VEML6030_ALS_REG;
-    uint8_t data[2] = {0,0};
 
-    // Select ALS output register
-    i2c_write_blocking(i2c_default, VEML6030_I2C_ADDR, &reg, 1, true);
-    // Read two bytes (MSB first)
-    i2c_read_blocking(i2c_default, VEML6030_I2C_ADDR, data, sizeof(data), false);
-    //data [0] contains the LSB and data[1] the MSB
-    uint16_t lightbits = ((uint16_t)data[0]) |((uint16_t) data[1]<<8);
-    // See table page 5 https://www.vishay.com/docs/84367/designingveml6030.pdf
-    // With other values of gain (1/8) and integration time (100ms) 
-    uint32_t luxVal_uncorrected = lightbits *  0.5376;
-    //NOT SURE IF THIS IS CORRECT JUST CHECK. 
+    // Exercise 2: In order to get the luminance we need to read the value of the VEML6030_ALS_REG (see VEML6030 datasheet)
+    //            Use functions i2c_write_blocking and i2_read_blocking to collect luminance data.
+    //            These functions are found in the Pico SDK:
+    //            https://www.raspberrypi.com/documentation/pico-sdk/hardware.html#group_hardware_i2c
+    //            The i2c that you must use is i2c_default.  
+    //            from the sensor. Make necessary bitwise operation to store the results in a register of 16 bits.
+    //            Multiply the value by the adequate value considering Integration Time of 100 ms and Gain of 1/8
+    //            using data of page 5 of VEML6030 design application document: https://www.vishay.com/docs/84367/designingveml6030.pdf
+    //            Finally, store the value in the variable luxVal_uncorrected.
+    //
+    // Tehtävä 2: Saadaksemme luminanssin meidän tulee lukea VEML6030_ALS_REG -rekisterin arvo (katso VEML6030-datalehti).
+    //            Käytä funktioita i2c_write_blocking ja i2_read_blocking luminanssidatan keräämiseen.
+    //            Nämä funktiot löytyvät Pico SDK:sta:
+    //            https://www.raspberrypi.com/documentation/pico-sdk/hardware.html#group_hardware_i2c
+    //            Käytettävä i2c-väylä on i2c_default.
+    //            Tee tarvittavat bittikohtaiset operaatiot tallettaksesi tuloksen 16-bittiseen rekisteriin.
+    //            Kerro arvo sopivalla kertoimella huomioiden 100 ms integraatioaika ja vahvistus 1/8
+    //            käyttäen VEML6030-sovellussuunnitteluasiakirjan sivun 5 tietoja:https://www.vishay.com/docs/84367/designingveml6030.pdf
+    //            Lopuksi tallenna arvo muuttujaan luxVal_uncorrected.
+  
+    uint32_t luxVal_uncorrected = 0; 
     if (luxVal_uncorrected>1000){
         // Polynomial is pulled from pg 10 of the datasheet. 
         // See https://github.com/sparkfun/SparkFun_Ambient_Light_Sensor_Arduino_Library/blob/efde0817bd6857863067bd1653a2cfafe6c68732/src/SparkFun_VEML6030_Ambient_Light_Sensor.cpp#L409
@@ -917,7 +937,7 @@ int ICM42670_enable_accel_gyro_lp_mode(void) {
     return rc;
 }
 
-int start_sensor_with_default_values(void) {
+int ICM42670_start_with_default_values(void) {
     int rc;
 
     // Start accelerometer with defaults (e.g., 100 Hz, ±4 g)

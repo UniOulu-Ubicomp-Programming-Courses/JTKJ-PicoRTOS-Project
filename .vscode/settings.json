@@ -16,6 +16,10 @@
     "cmake.automaticReconfigure": true,
     "cmake.configureOnOpen": true,
     "cmake.generator": "Ninja",
+    //ADD RIGHT PATH TO NINJA. GENERALLY NINJA IS AUTOMATICALLY DETECTED, BUT FOR SOME REASON NOT ANYMORE. 
+    "cmake.configureArgs": [
+        "-DCMAKE_MAKE_PROGRAM:FILEPATH=${userHome}/.pico-sdk/ninja/v1.12.1/ninja"
+    ],
     "cmake.cmakePath": "${userHome}/.pico-sdk/cmake/v3.31.5/bin/cmake",
     "cmake.configureSettings": {
             "CMAKE_C_COMPILER": "/home/student/.pico-sdk/toolchain/14_2_Rel1/bin/arm-none-eabi-gcc",
@@ -23,7 +27,8 @@
     },
     "C_Cpp.debugShortcut": false,
     "cmake.configureEnvironment": {
-        "FREERTOS_KERNEL_PATH": "${env:HOME}/.freertos" //It is important that Free-RTOS Kernel is installed in .freertos directly in the home of the user.
+        //"FREERTOS_KERNEL_PATH": "${env:HOME}/.freertos" //It is important that Free-RTOS Kernel is installed in .freertos directly in the home of the user.
+        "FREERTOS_KERNEL_PATH": "${userHome}/.freertos"
     },
     "terminal.integrated.env.windows": {
         "FREERTOS_KERNEL_PATH": "${env:USERPROFILE}/.freertos", 
@@ -60,6 +65,9 @@
         "compare": "c",
         "cstdint": "c",
         "string.h": "c",
-        "cstdio": "c"
+        "cstdio": "c",
+        "freertos.h": "c",
+        "pdm_microphone.h": "c",
+        "pins.h": "c"
     }
 }

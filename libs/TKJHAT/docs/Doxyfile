@@ -4,6 +4,7 @@ GENERATE_HTML          = YES
 GENERATE_LATEX         = NO
 FULL_PATH_NAMES        = NO
 RECURSIVE              = NO
+GENERATE_TREEVIEW      = YES
 INPUT                  = ../include/tkjhat/sdk.h \
                          ../include/tkjhat/pins.h \
                          overview.md
@@ -14,3 +15,9 @@ CALL_GRAPH             = YES
 USE_MDFILE_AS_MAINPAGE = overview.md
 EXTRACT_PRIVATE        = NO
 EXTRACT_STATIC         = NO
+
+# Diagrams
+HAVE_DOT               = YES
+DOT_IMAGE_FORMAT       = svg
+CALL_GRAPH             = YES
+CALLER_GRAPH           = YES
