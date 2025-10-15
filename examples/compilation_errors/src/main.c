@@ -2,7 +2,8 @@
 #include <time.h>
 #include <stdlib.h>
 #include <stdio.h>
-
+#include "FreeRTOS.h"
+#include "task.h"
 #include "pico/stdlib.h"
 #include "pico/stdio.h"
 
@@ -11,7 +12,7 @@
 #define TEMP_MAX        40
 #define LUX_MIN         100
 #define LUX_MAX         1500
-
+#define BUFFER_SIZE 3
 static volatile int temp; 
 static volatile int lux;
 
@@ -30,7 +31,8 @@ static volatile int lux;
  *       using srand() before calling this function repeatedly,
  *       for example in the main function.
  */
-static int rand_in_range(int min, int max) {
+static int rand_in_range(int min, int max){
+    srand(time(NULL));
     return min + rand() % (max - min + 1);
 }
 
@@ -70,7 +72,7 @@ static void sensorTask (void *arg){
  * @note The task runs indefinitely and updates every 1.5 seconds.
  **/
 
-static void printTask(void *arg) {
+static void printingTask(void *arg) {
     (void)arg;
 
     //Wait till someone is listening
@@ -106,3 +108,4 @@ int main (void) {
 
     vTaskStartScheduler();
 
+}
