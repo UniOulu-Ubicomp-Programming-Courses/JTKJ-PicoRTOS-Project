@@ -28,7 +28,7 @@ enum state programState = WAITING;
 
 // Tehtävä 3: Valoisuuden globaali muuttuja
 // Exercise 3: Global variable for ambient light
- float normal_IMUData[7];
+float normal_IMUData[7];
 // float ax, ay, az, gx, gy, gz, t;
 //  float IMUData[] = {ax, ay, az, gx, gy, gz, t};
 
@@ -66,14 +66,14 @@ static void sensor_task(void *arg){
 
         if(programState == WAITING) {
             float ax, ay, az, gx, gy, gz, t;
-            if (ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &t) == 0){
-                float array2_IMUData[7] = {ax, ay, az, gx, gy, gz, t};
-                for (int i = 0; i < sizeof(array2_IMUData)/sizeof(array2_IMUData[0]); i++) {
-                /*  if(normal_IMUData[i] == 0) {
+            if(ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &t) == 0) {
+                float array_IMUData[7] = {ax, ay, az, gx, gy, gz, t};
+                for(int i = 0; i < sizeof(array_IMUData) / sizeof(array_IMUData[0]); i++) {
+                    if(normal_IMUData[i] == 0) {
                         normal_IMUData[i] = 0;
                         continue;
-                    } */
-                    normal_IMUData[i] = (array2_IMUData[i]) / (250);
+                    }
+                normal_IMUData[i] = (array_IMUData[i]) / (250);
                 }
             programState = DATA_READY;
             }
