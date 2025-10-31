@@ -17,8 +17,6 @@
 
 #define DEFAULT_STACK_SIZE 2048
 #define CDC_ITF_TX      1
-#define DEFAULT_I2C_SDA_PIN  12
-#define DEFAULT_I2C_SCL_PIN  13
 
 
 // Tehtävä 3: Tilakoneen esittely Add missing states.
@@ -28,20 +26,9 @@ enum state programState = WAITING;
 
 // Tehtävä 3: Valoisuuden globaali muuttuja
 // Exercise 3: Global variable for ambient light
-int IMUData;
-float ax, ay, az, gx, gy, gz, t;
-//  float IMUData[] = {ax, ay, az, gx, gy, gz, t};
+uint32_t ambientLight;
 
-static void btn1_fxn(uint gpio, uint32_t eventMask) {
-    // Tehtävä 1: Vaihda LEDin tila.
-    //            Tarkista SDK, ja jos et löydä vastaavaa funktiota, sinun täytyy toteuttaa se itse.
-    // Exercise 1: Toggle the LED. 
-    //             Check the SDK and if you do not find a function you would need to implement it yourself.    
-    toggle_red_led();
-    
-}
-
-static void btn2_fxn(uint gpio, uint32_t eventMask) {
+static void btn_fxn(uint gpio, uint32_t eventMask) {
     // Tehtävä 1: Vaihda LEDin tila.
     //            Tarkista SDK, ja jos et löydä vastaavaa funktiota, sinun täytyy toteuttaa se itse.
     // Exercise 1: Toggle the LED. 
@@ -54,8 +41,7 @@ static void sensor_task(void *arg){
     (void)arg;
     // Tehtävä 2: Alusta valoisuusanturi. Etsi SDK-dokumentaatiosta sopiva funktio.
     // Exercise 2: Init the light sensor. Find in the SDK documentation the adequate function.
-    init_ICM42670();
-    ICM42670_start_with_default_values();
+    init_veml6030();
     for(;;){
         
         // Tehtävä 2: Muokkaa tästä eteenpäin sovelluskoodilla. Kommentoi seuraava rivi.
@@ -63,14 +49,9 @@ static void sensor_task(void *arg){
         // Exercise 2: Modify with application code here. Comment following line.
         //             Read sensor data and print it out as string; 
         //tight_loop_contents();
-
-        if(programState == WAITING) {
-            
-            IMUData = ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &t);
-            // array_IMUData
-            // for (int i = 0; i < 10; i++) {
-            //     normal_IMUData += ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &t);
-            // }
+        
+        if(programState = WAITING) {
+            ambientLight = veml6030_read_light();
             programState = DATA_READY;
         }
 
@@ -93,7 +74,7 @@ static void sensor_task(void *arg){
         // printf("sensorTask\n");
 
         // Do not remove this
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
 
@@ -111,9 +92,8 @@ static void print_task(void *arg){
         // tight_loop_contents();
 
         
-        if(programState == DATA_READY) {
-            // printf("%ld\n", ambientLight);
-            printf("Gx: %.2f Gy: %.2f Gz: %.2f \n", gx, gy, gz);
+        if(programState = DATA_READY) {
+            printf("%ld\n", ambientLight);
             programState = WAITING;
         }
         
@@ -187,8 +167,7 @@ int main() {
     //             Keskeytyskäsittelijä on määritelty yläpuolella nimellä btn_fxn
     init_button1();
     init_red_led();
-    gpio_set_irq_enabled_with_callback(BUTTON1, GPIO_IRQ_EDGE_FALL, true, btn1_fxn);
-    gpio_set_irq_enabled_with_callback(BUTTON2, GPIO_IRQ_EDGE_FALL, true, btn2_fxn);
+    gpio_set_irq_enabled_with_callback(BUTTON1, GPIO_IRQ_EDGE_FALL, true, btn_fxn);
 
 
     
