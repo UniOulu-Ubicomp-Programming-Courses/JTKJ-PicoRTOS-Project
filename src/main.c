@@ -21,82 +21,40 @@
 #define DEFAULT_I2C_SCL_PIN  13
 
 
-// Tehtävä 3: Tilakoneen esittely Add missing states.
-// Exercise 3: Definition of the state machine. Add missing states.
 enum state { WAITING=1, DATA_READY};
 enum state programState = WAITING;
 
-// Tehtävä 3: Valoisuuden globaali muuttuja
-// Exercise 3: Global variable for ambient light
 float normal_IMUData[7];
-// float ax, ay, az, gx, gy, gz, t;
-//  float IMUData[] = {ax, ay, az, gx, gy, gz, t};
 
-static void btn1_fxn(uint gpio, uint32_t eventMask) {
-    // Tehtävä 1: Vaihda LEDin tila.
-    //            Tarkista SDK, ja jos et löydä vastaavaa funktiota, sinun täytyy toteuttaa se itse.
-    // Exercise 1: Toggle the LED. 
-    //             Check the SDK and if you do not find a function you would need to implement it yourself.    
+static void btn1_fxn(uint gpio, uint32_t eventMask) { 
     toggle_red_led();
-    
+    // Gyrodata funktio
 }
 
-// static void btn2_fxn(uint gpio, uint32_t eventMask) {
-//     // Tehtävä 1: Vaihda LEDin tila.
-//     //            Tarkista SDK, ja jos et löydä vastaavaa funktiota, sinun täytyy toteuttaa se itse.
-//     // Exercise 1: Toggle the LED. 
-//     //             Check the SDK and if you do not find a function you would need to implement it yourself.    
-//     toggle_red_led();
-    
-// }
+static void btn2_fxn(uint gpio, uint32_t eventMask) {
+    toggle_red_led();
+    // Välilyönti
+}
 
 static void sensor_task(void *arg){
     (void)arg;
-    // Tehtävä 2: Alusta valoisuusanturi. Etsi SDK-dokumentaatiosta sopiva funktio.
-    // Exercise 2: Init the light sensor. Find in the SDK documentation the adequate function.
     init_ICM42670();
     ICM42670_start_with_default_values();
     for(;;){
-        
-        // Tehtävä 2: Muokkaa tästä eteenpäin sovelluskoodilla. Kommentoi seuraava rivi.
-        //             
-        // Exercise 2: Modify with application code here. Comment following line.
-        //             Read sensor data and print it out as string; 
-        //tight_loop_contents();
-
         if(programState == WAITING) {
             float ax, ay, az, gx, gy, gz, t;
             if(ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &t) == 0) {
                 float array_IMUData[7] = {ax, ay, az, gx, gy, gz, t};
                 for(int i = 0; i < sizeof(array_IMUData) / sizeof(array_IMUData[0]); i++) {
-                    if(normal_IMUData[i] == 0) {
-                        normal_IMUData[i] = 0;
-                        continue;
-                    }
+                    // if(normal_IMUData[i] == 0) {
+                    //     normal_IMUData[i] = 0;
+                    //     continue;
+                    // }
                 normal_IMUData[i] = (array_IMUData[i]) / (250);
                 }
             programState = DATA_READY;
             }
         }
-
-        // Tehtävä 3:  Muokkaa aiemmin Tehtävässä 2 tehtyä koodia ylempänä.
-        //             Jos olet oikeassa tilassa, tallenna anturin arvo tulostamisen sijaan
-        //             globaaliin muuttujaan.
-        //             Sen jälkeen muuta tilaa.
-        // Exercise 3: Modify previous code done for Exercise 2, in previous lines. 
-        //             If you are in adequate state, instead of printing save the sensor value 
-        //             into the global variable.
-        //             After that, modify state
-
-
-
-
-
-        
-        // Exercise 2. Just for sanity check. Please, comment this out
-        // Tehtävä 2: Just for sanity check. Please, comment this out
-        // printf("sensorTask\n");
-
         // Do not remove this
         vTaskDelay(pdMS_TO_TICKS(500));
     }
@@ -106,18 +64,8 @@ static void print_task(void *arg){
     (void)arg;
     
     while(1){
-        
-        // Tehtävä 3: Kun tila on oikea, tulosta sensoridata merkkijonossa debug-ikkunaan
-        //            Muista tilamuutos
-        //            Älä unohda kommentoida seuraavaa koodiriviä.
-        // Exercise 3: Print out sensor data as string to debug window if the state is correct
-        //             Remember to modify state
-        //             Do not forget to comment next line of code.
-        // tight_loop_contents();
-
-        printf("print_task\n");
+        // printf("print_task\n");
         if(programState == DATA_READY) {
-            // printf("%ld\n", ambientLight);
             printf("Gx: %.2f Gy: %.2f Gz: %.2f \n", normal_IMUData[3], normal_IMUData[4], normal_IMUData[5]);
             programState = WAITING;
         }
@@ -138,13 +86,6 @@ static void print_task(void *arg){
         //            Tällä menetelmällä kirjoitettu data tulee antaa CSV-muodossa:
         //            timestamp, luminance
 
-
-
-
-        // Exercise 3. Just for sanity check. Please, comment this out
-        // Tehtävä 3: Just for sanity check. Please, comment this out
-        // printf("printTask\n");
-        
         // Do not remove this
         vTaskDelay(pdMS_TO_TICKS(500));
     }
@@ -190,14 +131,11 @@ int main() {
     init_hat_sdk();
     sleep_ms(300); //Wait some time so initialization of USB and hat is done.
 
-    // Exercise 1: Initialize the button and the led and define an register the corresponding interrupton.
-    //             Interruption handler is defined up as btn_fxn
-    // Tehtävä 1:  Alusta painike ja LEd ja rekisteröi vastaava keskeytys.
-    //             Keskeytyskäsittelijä on määritelty yläpuolella nimellä btn_fxn
     init_button1();
+    init_button2();
     init_red_led();
     gpio_set_irq_enabled_with_callback(BUTTON1, GPIO_IRQ_EDGE_FALL, true, btn1_fxn);
-    // gpio_set_irq_enabled_with_callback(BUTTON2, GPIO_IRQ_EDGE_FALL, true, btn2_fxn);
+    gpio_set_irq_enabled_with_callback(BUTTON2, GPIO_IRQ_EDGE_FALL, true, btn2_fxn);
 
 
     
