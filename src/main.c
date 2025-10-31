@@ -41,14 +41,14 @@ static void btn1_fxn(uint gpio, uint32_t eventMask) {
     
 }
 
-static void btn2_fxn(uint gpio, uint32_t eventMask) {
-    // Tehtävä 1: Vaihda LEDin tila.
-    //            Tarkista SDK, ja jos et löydä vastaavaa funktiota, sinun täytyy toteuttaa se itse.
-    // Exercise 1: Toggle the LED. 
-    //             Check the SDK and if you do not find a function you would need to implement it yourself.    
-    toggle_red_led();
+// static void btn2_fxn(uint gpio, uint32_t eventMask) {
+//     // Tehtävä 1: Vaihda LEDin tila.
+//     //            Tarkista SDK, ja jos et löydä vastaavaa funktiota, sinun täytyy toteuttaa se itse.
+//     // Exercise 1: Toggle the LED. 
+//     //             Check the SDK and if you do not find a function you would need to implement it yourself.    
+//     toggle_red_led();
     
-}
+// }
 
 static void sensor_task(void *arg){
     (void)arg;
@@ -66,12 +66,17 @@ static void sensor_task(void *arg){
 
         if(programState == WAITING) {
             float ax, ay, az, gx, gy, gz, t;
-            ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &t);
-            float array_IMUData[7] = {ax, ay, az, gx, gy, gz, t};
-            for (int i = 0; i < sizeof(array_IMUData); i++) {
-                normal_IMUData[i] = (array_IMUData[i]) / (250);
-            }
+            if (ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &t) == 0){
+                float array2_IMUData[7] = {ax, ay, az, gx, gy, gz, t};
+                for (int i = 0; i < sizeof(array2_IMUData)/sizeof(array2_IMUData[0]); i++) {
+                /*  if(normal_IMUData[i] == 0) {
+                        normal_IMUData[i] = 0;
+                        continue;
+                    } */
+                    normal_IMUData[i] = (array2_IMUData[i]) / (250);
+                }
             programState = DATA_READY;
+            }
         }
 
         // Tehtävä 3:  Muokkaa aiemmin Tehtävässä 2 tehtyä koodia ylempänä.
@@ -110,7 +115,7 @@ static void print_task(void *arg){
         //             Do not forget to comment next line of code.
         // tight_loop_contents();
 
-        
+        printf("print_task\n");
         if(programState == DATA_READY) {
             // printf("%ld\n", ambientLight);
             printf("Gx: %.2f Gy: %.2f Gz: %.2f \n", normal_IMUData[3], normal_IMUData[4], normal_IMUData[5]);
@@ -145,9 +150,9 @@ static void print_task(void *arg){
     }
 }
 
-static void saveTask (void *arg){
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
+// static void saveTask (void *arg){
+//         vTaskDelay(pdMS_TO_TICKS(1000));
+//     }
 
 
 // Exercise 4: Uncomment the following line to activate the TinyUSB library.  
@@ -192,7 +197,7 @@ int main() {
     init_button1();
     init_red_led();
     gpio_set_irq_enabled_with_callback(BUTTON1, GPIO_IRQ_EDGE_FALL, true, btn1_fxn);
-    gpio_set_irq_enabled_with_callback(BUTTON2, GPIO_IRQ_EDGE_FALL, true, btn2_fxn);
+    // gpio_set_irq_enabled_with_callback(BUTTON2, GPIO_IRQ_EDGE_FALL, true, btn2_fxn);
 
 
     
