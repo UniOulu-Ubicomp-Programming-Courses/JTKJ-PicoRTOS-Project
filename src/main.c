@@ -28,8 +28,8 @@ enum state programState = WAITING;
 
 // Tehtävä 3: Valoisuuden globaali muuttuja
 // Exercise 3: Global variable for ambient light
-int IMUData;
-float ax, ay, az, gx, gy, gz, t;
+ float normal_IMUData[7];
+// float ax, ay, az, gx, gy, gz, t;
 //  float IMUData[] = {ax, ay, az, gx, gy, gz, t};
 
 static void btn1_fxn(uint gpio, uint32_t eventMask) {
@@ -65,12 +65,12 @@ static void sensor_task(void *arg){
         //tight_loop_contents();
 
         if(programState == WAITING) {
-            
-            IMUData = ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &t);
-            // array_IMUData
-            // for (int i = 0; i < 10; i++) {
-            //     normal_IMUData += ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &t);
-            // }
+            float ax, ay, az, gx, gy, gz, t;
+            ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &t);
+            float array_IMUData[7] = {ax, ay, az, gx, gy, gz, t};
+            for (int i = 0; i < sizeof(array_IMUData); i++) {
+                normal_IMUData[i] = (array_IMUData[i]) / (250);
+            }
             programState = DATA_READY;
         }
 
@@ -113,7 +113,7 @@ static void print_task(void *arg){
         
         if(programState == DATA_READY) {
             // printf("%ld\n", ambientLight);
-            printf("Gx: %.2f Gy: %.2f Gz: %.2f \n", gx, gy, gz);
+            printf("Gx: %.2f Gy: %.2f Gz: %.2f \n", normal_IMUData[3], normal_IMUData[4], normal_IMUData[5]);
             programState = WAITING;
         }
         
@@ -144,6 +144,10 @@ static void print_task(void *arg){
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
+
+static void saveTask (void *arg){
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
 
 
 // Exercise 4: Uncomment the following line to activate the TinyUSB library.  
