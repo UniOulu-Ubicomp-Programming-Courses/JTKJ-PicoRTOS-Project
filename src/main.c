@@ -50,7 +50,7 @@ static void sensor_task(void *arg){
                     //     normal_IMUData[i] = 0;
                     //     continue;
                     // }
-                normal_IMUData[i] = (array_IMUData[i]) / (250);
+                normal_IMUData[i] = (array_IMUData[i]) / (ICM42670_GYRO_FSR_DEFAULT);
                 }
             programState = DATA_READY;
             }
