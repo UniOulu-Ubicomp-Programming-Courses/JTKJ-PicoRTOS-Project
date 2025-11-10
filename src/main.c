@@ -70,7 +70,7 @@ static void sensor_task(void *arg){
             }
         }
         // Do not remove this
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(300));
     }
 }
 
@@ -80,7 +80,7 @@ static void print_task(void *arg){
     while(1){
         // printf("print_task\n");
         if(programState == DATA_READY) {
-            printf("Gx: %.2f Gy: %.2f Gz: %.2f testVar: %d \n", normal_IMUData[0], normal_IMUData[1], normal_IMUData[2], testVar);
+            // printf("Gx: %.2f Gy: %.2f Gz: %.2f testVar: %d \n", normal_IMUData[0], normal_IMUData[1], normal_IMUData[2], testVar);
             programState = WAITING;
         }
         
@@ -101,13 +101,13 @@ static void print_task(void *arg){
         //            timestamp, luminance
 
         // Do not remove this
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(300));
     }
 }
 
 void gyro_data() {
     // printf("Gyro function\n");
-    printf("SAVED GYRO DATA ------- Gx: %.2f Gy: %.2f Gz: %.2f \n", saved_IMUData[10][0], saved_IMUData[10][1], saved_IMUData[10][2]);
+    // printf("SAVED GYRO DATA ------- Gx: %.2f Gy: %.2f Gz: %.2f \n", saved_IMUData[10][0], saved_IMUData[10][1], saved_IMUData[10][2]);
     testVar = 200;
     for(int i = 0; i < DATASIZE; i++) {
         // for(int j = 0; j < 3; j++) {
