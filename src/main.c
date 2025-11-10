@@ -19,38 +19,52 @@
 #define CDC_ITF_TX      1
 #define DEFAULT_I2C_SDA_PIN  12
 #define DEFAULT_I2C_SCL_PIN  13
+#define DATASIZE 10
 
-
-enum state { WAITING=1, DATA_READY};
+enum state {WAITING=1, DATA_READY};
 enum state programState = WAITING;
 
-float normal_IMUData[7];
+float normal_IMUData[3];
+float saved_IMUData[DATASIZE][3];
 
-static void btn1_fxn(uint gpio, uint32_t eventMask) { 
-    toggle_red_led();
-    // Gyrodata funktio
-}
+void gyro_data();
 
-static void btn2_fxn(uint gpio, uint32_t eventMask) {
+int testVar = 0;
+
+static void btn_fxn(uint gpio, uint32_t eventMask) {
     toggle_red_led();
-    // Välilyönti
+    if (gpio == BUTTON1) {
+        testVar = 15;
+        programState = DATA_READY;
+        // Gyrodata funktio
+        gyro_data();
+    }
+
+    else if (gpio == BUTTON2) {
+        testVar = 5;
+    }
 }
 
 static void sensor_task(void *arg){
-    (void)arg;
     init_ICM42670();
     ICM42670_start_with_default_values();
+    (void)arg;
     for(;;){
         if(programState == WAITING) {
             float ax, ay, az, gx, gy, gz, t;
             if(ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &t) == 0) {
                 float array_IMUData[7] = {ax, ay, az, gx, gy, gz, t};
-                for(int i = 0; i < sizeof(array_IMUData) / sizeof(array_IMUData[0]); i++) {
+                for(int i = 3; i <= 5; i++) {
                     // if(normal_IMUData[i] == 0) {
                     //     normal_IMUData[i] = 0;
                     //     continue;
                     // }
-                normal_IMUData[i] = (array_IMUData[i]) / (ICM42670_GYRO_FSR_DEFAULT);
+                normal_IMUData[i-3] = (array_IMUData[i]) / (ICM42670_GYRO_FSR_DEFAULT);
+                }
+                for(int i = 0; i < DATASIZE; i++) {
+                    for(int j = 0; j < 3; j++) {
+                        saved_IMUData[i][j] = normal_IMUData[j];
+                    }   
                 }
             programState = DATA_READY;
             }
@@ -66,7 +80,7 @@ static void print_task(void *arg){
     while(1){
         // printf("print_task\n");
         if(programState == DATA_READY) {
-            printf("Gx: %.2f Gy: %.2f Gz: %.2f \n", normal_IMUData[3], normal_IMUData[4], normal_IMUData[5]);
+            printf("Gx: %.2f Gy: %.2f Gz: %.2f testVar: %d \n", normal_IMUData[0], normal_IMUData[1], normal_IMUData[2], testVar);
             programState = WAITING;
         }
         
@@ -91,6 +105,20 @@ static void print_task(void *arg){
     }
 }
 
+void gyro_data() {
+    // printf("Gyro function\n");
+    printf("SAVED GYRO DATA ------- Gx: %.2f Gy: %.2f Gz: %.2f \n", saved_IMUData[10][0], saved_IMUData[10][1], saved_IMUData[10][2]);
+    testVar = 200;
+    for(int i = 0; i < DATASIZE; i++) {
+        // for(int j = 0; j < 3; j++) {
+        //     saved_IMUData[i][j] 
+        // }   
+        if(saved_IMUData[i][0] > 0.5 || saved_IMUData[i][0] < -0.5) {
+            printf("LARGEST SAVED GYRO DATA ------- Gx: %.2f Gy: %.2f Gz: %.2f \n", saved_IMUData[i][0], saved_IMUData[i][1], saved_IMUData[i][2]);
+        }
+    }
+}
+
 // static void saveTask (void *arg){
 //         vTaskDelay(pdMS_TO_TICKS(1000));
 //     }
@@ -109,6 +137,8 @@ static void usbTask(void *arg) {
 }*/
 
 int main() {
+
+
 
     // Exercise 4: Comment the statement stdio_init_all(); 
     //             Instead, add AT THE END OF MAIN (before vTaskStartScheduler();) adequate statements to enable the TinyUSB library and the usb-serial-debug.
@@ -134,9 +164,8 @@ int main() {
     init_button1();
     init_button2();
     init_red_led();
-    gpio_set_irq_enabled_with_callback(BUTTON1, GPIO_IRQ_EDGE_FALL, true, btn1_fxn);
-    gpio_set_irq_enabled_with_callback(BUTTON2, GPIO_IRQ_EDGE_FALL, true, btn2_fxn);
-
+    gpio_set_irq_enabled_with_callback(BUTTON1, GPIO_IRQ_EDGE_FALL, true, btn_fxn);
+    gpio_set_irq_enabled_with_callback(BUTTON2, GPIO_IRQ_EDGE_FALL, true, btn_fxn);
 
     
     
