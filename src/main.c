@@ -29,6 +29,8 @@ float saved_IMUData[DATASIZE][3];
 
 // void gyro_data();
 
+int iteration = 0;
+
 int testVar = 0;
 
 static void btn_fxn(uint gpio, uint32_t eventMask) {
@@ -54,6 +56,7 @@ static void sensor_task(void *arg){
             float ax, ay, az, gx, gy, gz, t;
             if(ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &t) == 0) {
                 float array_IMUData[7] = {ax, ay, az, gx, gy, gz, t};
+                // Filter and normalize gyroscope values
                 for(int i = 3; i <= 5; i++) {
                     // if(normal_IMUData[i] == 0) {
                     //     normal_IMUData[i] = 0;
@@ -61,14 +64,21 @@ static void sensor_task(void *arg){
                     // }
                     normal_IMUData[i-3] = (array_IMUData[i]) / (ICM42670_GYRO_FSR_DEFAULT);
                 }
-                for(int i = 0; i < DATASIZE; i++) {
-                    for(int j = 0; j < 3; j++) {
-                        saved_IMUData[i][j] = normal_IMUData[j];
-                    }   
+                // Save the last n = DATASIZE xyz values into an array
+                for(iteration; iteration < DATASIZE; iteration++) {
+                    if(iteration != DATASIZE-1) {
+                        for(int j = 0; j < 3; j++) {
+                            saved_IMUData[iteration][j] = normal_IMUData[j];
+                        }
+                    }
+                    else {
+                        iteration = 0;
+                    }
+
                 }
             // programState = DATA_READY;
             }
-        }
+        }   
         // Do not remove this
         vTaskDelay(pdMS_TO_TICKS(500));
     }
@@ -76,15 +86,14 @@ static void sensor_task(void *arg){
 
 static void print_task(void *arg){
     (void)arg;
-    
     while(1){
-        // printf("print_task\n");
         if(programState == DATA_READY) {
             // printf("Gx: %.2f Gy: %.2f Gz: %.2f testVar: %d \n", normal_IMUData[0], normal_IMUData[1], normal_IMUData[2], testVar);
             printf("[Gx,    Gy,     Gz]\n");
             for(int i = 0; i < DATASIZE; i++) {
                 printf("[%.2f, %.2f, %.2f]\n", saved_IMUData[i][0], saved_IMUData[i][1], saved_IMUData[i][2]);
             }
+            printf("\n");
             programState = WAITING;
         }
         
