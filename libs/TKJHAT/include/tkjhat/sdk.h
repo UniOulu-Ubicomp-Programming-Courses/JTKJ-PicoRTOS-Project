@@ -1,5 +1,5 @@
 /*
-Version 0.8
+Version 0.83
 
 MIT License
 
@@ -27,14 +27,14 @@ SOFTWARE.
 
 /**
  * @file tkjhat/sdk.h
- * \author Raisul Islam
- * \author Iván Sánchez Milara
  * @brief Public API for the JTKJ HAT SDK (Raspberry Pi Pico / Pico 2).
  *
- * \par Contributors
+ * @author Raisul Islam
+ * @author Iván Sánchez Milara
+ * @version 0.83
+ *
+ * @par Contributors
  * Emil Kelhala
- * 
- * @version 0.8
  *
  * @details
  * This SDK provides simple functions to use the main hardware on the JTKJ HAT:
@@ -42,57 +42,58 @@ SOFTWARE.
  * - **User inputs**
  *   - Two buttons: SW1 (GPIO 2), SW2 (GPIO 22)
  *
- * - **Indicators / output**
+ * - **Indicators / outputs**
  *   - One red LED (GPIO 14)
  *   - One RGB LED (GPIO 18:R, 19:G, 20:B) driven by PWM
  *   - Buzzer (GPIO 17)
- *   - 0.96" SSD1306 I2C OLED display (addr 0x3C)
- *
+ *   - 0.96 inches SSD1306 I2C OLED display (addr 0x3C)
+ * 
  * - **Sensors**
  *   - VEML6030 ambient light sensor (I2C addr 0x10)
  *   - HDC2021 temperature & humidity sensor (I2C addr 0x40)
- *   - ICM-42670 IMU: 3-axis accelerometer + 3-axis gyroscope (I2C addr 0x69 / 0x69 alt autodetect)
+ *   - ICM-42670 IMU: 3-axis accelerometer + 3-axis gyroscope
+ *     (I2C addr 0x68 or 0x69; autodetected)
  *   - PDM MEMS microphone (DATA GPIO 16, CLK GPIO 15) via PIO + OpenPDM2PCM
  *
  * - **I2C defaults**
  *   - SDA GPIO 12, SCL GPIO 13
- *
+ * 
+ * 
  * The API aims to be minimal and easy to use in teaching settings. Most functions are
  * non-blocking and configure the required pins/peripherals for basic operation. For more
  * advanced control (e.g., custom I2C transfers), helper functions are also provided.
  *
  * ### Typical usage
- * @code
+ * 
+ * @code{.c}
  * #include <tkjhat/sdk.h>
  *
  * int main(void) {
  *     stdio_init_all();
  *
- *     init_hat_sdk();          // put board in a known state (e.g., RGB off) and start default i2c
+ *     init_hat_sdk();          // put board in a known state (e.g., RGB off) and start default I2C
  *     init_red_led();          // optional: prepare red LED
  *     init_rgb_led();          // optional: enable RGB PWM
  *
  *     init_display();          // SSD1306 ready to use
  *     write_text("Hello HAT"); // draw text
  *
- *     ICM42670_init();                         // IMU WHO_AM_I + basic setup
+ *     init_ICM42670();                        // IMU WHO_AM_I + basic setup
  *     ICM42670_startAccel(100, 4);            // 100 Hz, ±4 g
  *     ICM42670_startGyro(100, 250);           // 100 Hz, ±250 dps
  *     ICM42670_enable_accel_gyro_ln_mode();   // low-noise mode
- *
- *     // ...
  * }
  * @endcode
  *
  * ### Notes
- * - `init_hat_sdk()` only prepares the board state (e.g., turns RGB LED off) and initialize default I2C to connect the peripherals
- *    It does **not** initialize peripherals; call the per-device init functions you need.
+ * - `init_hat_sdk()` prepares board state (e.g., turns RGB LED off) and initializes the default I2C bus.
+ *   It does **not** initialize peripherals; call the per-device init functions you need.
  *
  * ### Dependencies
  * - Raspberry Pi Pico SDK (GPIO, PWM, I2C, PIO, DMA where applicable)
  * - (Optional) FreeRTOS if used elsewhere in the application
  * - OpenPDM2PCM (bundled) for microphone PCM conversion
- * - pico-ssd1306 (bundled) for OLED display support - https://github.com/daschr/pico-ssd1306
+ * - pico-ssd1306 (bundled) for OLED display support — https://github.com/daschr/pico-ssd1306
  *
  * @copyright
  * MIT License — see the header for full text.
@@ -112,105 +113,195 @@ SOFTWARE.
 #include "pdm_microphone.h"   // pdm_samples_ready_handler_t
 #include "pins.h"
 
-
+/* =========================
+ *  CONSTANTS AND MACROS
+ * ========================= */
 
 /* =========================
  *  VEML6030
  * ========================= */
-#define VEML6030_I2C_ADDR                       0x10
-#define VEML6030_CONFIG_REG                     0x00
-#define VEML6030_ALS_REG                        0x04
+
+/**
+ * @defgroup Macros Macros including addresses and registers of peripherals 
+ * @brief Register addresses and constants for the different sensors and actuators of the HAT.
+ * @{
+ */
+
+/** @name VEML6030
+ *  Light sensor address, and registers
+ *  @{ */
+#define VEML6030_I2C_ADDR                       0x10   /**< I2C address of the VEML6030 sensor. */
+#define VEML6030_CONFIG_REG                     0x00   /**< Configuration register. */
+#define VEML6030_ALS_REG                        0x04   /**< Ambient Light Sensing (ALS) data register. */
+/** @} */
 
 /* =========================
  *  HDC2021
  * ========================= */
-#define HDC2021_I2C_ADDRESS                     0x40
-#define HDC2021_TEMP_LOW                        0x00
-#define HDC2021_TEMP_HIGH                       0x01
-#define HDC2021_HUMIDITY_LOW                    0x02
-#define HDC2021_HUMIDITY_HIGH                   0x03
-#define HDC2021_CONFIG                          0x0E
-#define HDC2021_MEASUREMENT_CONFIG              0x0F
-#define HDC2021_TEMP_THR_L                      0x13
-#define HDC2021_TEMP_THR_H                      0x14
-#define HDC2021_HUMID_THR_L                     0x15
-#define HDC2021_HUMID_THR_H                     0x16
+
+ /** @name HDC2021
+ *  Humidity sensor address, registers and interruptions thresholds
+ *  @{ */
+#define HDC2021_I2C_ADDRESS                     0x40   /**< I2C address of the HDC2021 sensor. */
+#define HDC2021_TEMP_LOW                        0x00   /**< Temperature low byte register. */
+#define HDC2021_TEMP_HIGH                       0x01   /**< Temperature high byte register. */
+#define HDC2021_HUMIDITY_LOW                    0x02   /**< Humidity low byte register. */
+#define HDC2021_HUMIDITY_HIGH                   0x03   /**< Humidity high byte register. */
+#define HDC2021_CONFIG                          0x0E   /**< Configuration register. */
+#define HDC2021_MEASUREMENT_CONFIG              0x0F   /**< Measurement configuration register. */
+#define HDC2021_TEMP_THR_L                      0x13   /**< Low temperature threshold. */
+#define HDC2021_TEMP_THR_H                      0x14   /**< High temperature threshold. */
+#define HDC2021_HUMID_THR_L                     0x15   /**< Low humidity threshold. */
+#define HDC2021_HUMID_THR_H                     0x16   /**< High humidity threshold. */
+/** @} */
+
 
 /* =========================
  *  SSD1306
  * ========================= */
 
- #define SSD1306_I2C_ADDRESS                    0x3C
-
- /* =========================
- *  MEMS MICROPHONE
- * ========================= */
-
-# define MEMS_SAMPLING_FREQUENCY                8000
-# define MEMS_BUFFER_SIZE                       256
+/** @name Display
+ *  SSD1306 display address 
+ *  @{ */
+#define SSD1306_I2C_ADDRESS                     0x3C   /**< I2C address of the SSD1306 OLED display. */
+/** @} */
 
 /* =========================
- *  ICM42670
+ *  MEMS MICROPHONE
  * ========================= */
-#define ICM42670_I2C_ADDRESS                    0x69
-#define ICM42670_I2C_ADDRESS_ALT                0x69
-#define ICM42670_REG_WHO_AM_I                   0x75
-#define ICM42670_WHO_AM_I_RESPONSE              0x67
-#define ICM42670_INT_CONFIG                     0x06
-#define ICM42670_INT1_CONFIG_VALUE              0x02
-#define ICM42670_MAX_READ_LENGTH                256
-#define ICM42670_MAX_WRITE_LENGTH               256
+/** @name Microphone
+ *  Microphone's sampling rate and buffer size. 
+ *  @{ */
+#define MEMS_SAMPLING_FREQUENCY                 8000   /**< Sampling frequency in Hz for PDM microphone. */
+#define MEMS_BUFFER_SIZE                        256    /**< Number of samples in each microphone buffer. */
+/** @} */
 
-#define ICM42670_ACCEL_CONFIG0_REG              0x21
-#define ICM42670_PWR_MGMT0_REG                  0x1F
+/* =========================
+ *  ICM-42670 (IMU)
+ * ========================= */
 
-// Accel FSR encodings
-#define ICM42670_ACCEL_FSR_2G                   0x03
-#define ICM42670_ACCEL_FSR_4G                   0x02
-#define ICM42670_ACCEL_FSR_8G                   0x01
-#define ICM42670_ACCEL_FSR_16G                  0x00
-#define ICM42670_ACCEL_FSR_DEFAULT              4
-#define ICM42670_GYRO_FSR_DEFAULT               250
+/** @name I2C addressing
+ *  I2C address and identity registers.
+ *  @{ */
+#define ICM42670_I2C_ADDRESS                    0x69   /**< Default I2C address (AD0 pulled). */
+#define ICM42670_I2C_ADDRESS_ALT                0x69   /**< Alternate I2C address (autodetect helper uses both). */
+#define ICM42670_REG_WHO_AM_I                   0x75   /**< WHO_AM_I register address. */
+#define ICM42670_WHO_AM_I_RESPONSE              0x67   /**< Expected WHO_AM_I value. */
+/** @} */
 
-// Accel ODR encodings (LN mode)
-#define ICM42670_ACCEL_ODR_25HZ                 0x0B
-#define ICM42670_ACCEL_ODR_50HZ                 0x0A
-#define ICM42670_ACCEL_ODR_100HZ                0x09
-#define ICM42670_ACCEL_ODR_200HZ                0x08
-#define ICM42670_ACCEL_ODR_400HZ                0x07
-#define ICM42670_ACCEL_ODR_800HZ                0x06
-#define ICM42670_ACCEL_ODR_1600HZ               0x05
-#define ICM42670_ACCEL_ODR_DEFAULT              100
-#define ICM42670_GYRO_ODR_DEFAULT               100
+/** @name Interrupts
+ *  Interrupt configuration registers and defaults.
+ *  @{ */
+#define ICM42670_INT_CONFIG                     0x06   /**< INT1/INT2 routing/config register. */
+#define ICM42670_INT1_CONFIG_VALUE              0x02   /**< Default INT1 config: active-low, pulsed (course default). */
+/** @} */
 
-// Accel LN mode in PWR_MGMT0
-/* note: ICM42670_PWR_MGMT0_REG also defined above */
-#define ICM42670_ACCEL_MODE_LN                  0x03
-#define ICM42670_GYRO_CONFIG0_REG               0x20
-#define ICM42670_REG_SIGNAL_PATH_RESET          0x02
-#define ICM42670_RESET_CONFIG_BITS              0x10
+/** @name Transfer limits
+ *  Helper limits for SDK buffer handling.
+ *  @{ */
+#define ICM42670_MAX_READ_LENGTH                256    /**< Max contiguous read length used by the SDK. */
+#define ICM42670_MAX_WRITE_LENGTH               256    /**< Max contiguous write length used by the SDK. */
+/** @} */
 
-// Gyro FSR encodings
-#define ICM42670_GYRO_FSR_250DPS                0x03
-#define ICM42670_GYRO_FSR_500DPS                0x02
-#define ICM42670_GYRO_FSR_1000DPS               0x01
-#define ICM42670_GYRO_FSR_2000DPS               0x00
+/** @name Configuration registers
+ *  Top-level configuration register addresses.
+ *  @{ */
+#define ICM42670_ACCEL_CONFIG0_REG              0x21   /**< Accelerometer ODR/FSR (see bit fields below). */
+#define ICM42670_GYRO_CONFIG0_REG               0x20   /**< Gyroscope ODR/FSR (see bit fields below). */
+#define ICM42670_PWR_MGMT0_REG                  0x1F   /**< Power state / sensor mode control. */
+#define ICM42670_REG_SIGNAL_PATH_RESET          0x02   /**< Signal path reset register. */
+#define ICM42670_RESET_CONFIG_BITS              0x10   /**< Value used for soft reset sequence. */
+/** @} */
 
-// Gyro ODR encodings
-#define ICM42670_GYRO_ODR_25HZ                  0x0B
-#define ICM42670_GYRO_ODR_50HZ                  0x0A
-#define ICM42670_GYRO_ODR_100HZ                 0x09
-#define ICM42670_GYRO_ODR_200HZ                 0x08
-#define ICM42670_GYRO_ODR_400HZ                 0x07
-#define ICM42670_GYRO_ODR_800HZ                 0x06
-#define ICM42670_GYRO_ODR_1600HZ                0x05
+/** @name Accelerometer FSR encodings
+ *  ACCEL_CONFIG0[7:5]. Full-scale range selection.
+ *  @{ */
+#define ICM42670_ACCEL_FSR_2G                   0x03   /**< ±2 g. */
+#define ICM42670_ACCEL_FSR_4G                   0x02   /**< ±4 g. */
+#define ICM42670_ACCEL_FSR_8G                   0x01   /**< ±8 g. */
+#define ICM42670_ACCEL_FSR_16G                  0x00   /**< ±16 g. */
+#define ICM42670_ACCEL_FSR_DEFAULT              4      /**< SDK default FSR in g (±4 g). */
+/** @} */
 
-#define ICM42670_GYRO_MODE_LN                   0x0C
-#define ICM42670_SENSOR_DATA_START_REG          0x09
+/** @name Gyroscope FSR encodings
+ *  GYRO_CONFIG0[7:5]. Full-scale range selection.
+ *  @{ */
+#define ICM42670_GYRO_FSR_250DPS                0x03   /**< ±250 dps. */
+#define ICM42670_GYRO_FSR_500DPS                0x02   /**< ±500 dps. */
+#define ICM42670_GYRO_FSR_1000DPS               0x01   /**< ±1000 dps. */
+#define ICM42670_GYRO_FSR_2000DPS               0x00   /**< ±2000 dps. */
+#define ICM42670_GYRO_FSR_DEFAULT               250    /**< SDK default FSR in dps (±250 dps). */
+/** @} */
+
+/** @name Accelerometer ODR encodings (LN mode)
+ *  ACCEL_CONFIG0[3:0]. Output Data Rate selection in Low-Noise mode.
+ *  @{ */
+#define ICM42670_ACCEL_ODR_25HZ                 0x0B   /**< 25 Hz. */
+#define ICM42670_ACCEL_ODR_50HZ                 0x0A   /**< 50 Hz. */
+#define ICM42670_ACCEL_ODR_100HZ                0x09   /**< 100 Hz. */
+#define ICM42670_ACCEL_ODR_200HZ                0x08   /**< 200 Hz. */
+#define ICM42670_ACCEL_ODR_400HZ                0x07   /**< 400 Hz. */
+#define ICM42670_ACCEL_ODR_800HZ                0x06   /**< 800 Hz. */
+#define ICM42670_ACCEL_ODR_1600HZ               0x05   /**< 1600 Hz. */
+#define ICM42670_ACCEL_ODR_DEFAULT              100    /**< SDK default ODR in Hz (100 Hz). */
+/** @} */
+
+/** @name Gyroscope ODR encodings
+ *  GYRO_CONFIG0[3:0]. Output Data Rate selection.
+ *  @{ */
+#define ICM42670_GYRO_ODR_25HZ                  0x0B   /**< 25 Hz. */
+#define ICM42670_GYRO_ODR_50HZ                  0x0A   /**< 50 Hz. */
+#define ICM42670_GYRO_ODR_100HZ                 0x09   /**< 100 Hz. */
+#define ICM42670_GYRO_ODR_200HZ                 0x08   /**< 200 Hz. */
+#define ICM42670_GYRO_ODR_400HZ                 0x07   /**< 400 Hz. */
+#define ICM42670_GYRO_ODR_800HZ                 0x06   /**< 800 Hz. */
+#define ICM42670_GYRO_ODR_1600HZ                0x05   /**< 1600 Hz. */
+#define ICM42670_GYRO_ODR_DEFAULT               100    /**< SDK default ODR in Hz (100 Hz). */
+/** @} */
+
+/** @name Power / mode bits
+ *  Encodings for PWR_MGMT0 sensor-mode fields.
+ *  @{ */
+#define ICM42670_ACCEL_MODE_LN                  0x03   /**< Accel Low-Noise mode code for PWR_MGMT0 accel field. */
+#define ICM42670_GYRO_MODE_LN                   0x0C   /**< Gyro Low-Noise mode code for PWR_MGMT0 gyro field. */
+/** @} */
+
+/** @name Sensor data window
+ *  Starting register for burst reads of temp/accel/gyro data.
+ *  @{ */
+#define ICM42670_SENSOR_DATA_START_REG          0x09   /**< First data register for TEMP/ACCEL/GYRO burst read. */
+/** @} */
+
+/** @} */ /* end of group  of registers*/
+
+
+
 
 /* =========================
  *  Public function prototypes
  * ========================= */
+
+/**
+ * @defgroup i2c_general General initialization and I2C control
+ * @brief Initialization routines for the JTKJ HAT SDK and helper
+ * functions for I2C communication.
+ *
+ * @details
+ * These functions initialize the SDK environment and provide basic
+ * read/write access to devices connected on the default I2C bus.
+ *
+ * Connected devices on the JTKJ HAT I2C (default bus):
+ * | Device                     | Address | Description                     |
+ * |-----------------------------|----------|---------------------------------|
+ * | SSD1306 OLED display        | 0x3C     | 128×64 OLED screen              |
+ * | VEML6030 light sensor       | 0x10     | Ambient light (lux) sensor      |
+ * | HDC2021 temp/humidity sensor| 0x40     | Temperature & humidity sensor   |
+ * | ICM-42670 IMU               | 0x69     | 6-axis accelerometer + gyro     |
+ *
+ * @note Most drivers call these internally; you usually only need
+ * `init_hat_sdk()` or `init_i2c_default()` in your main program.
+ * @{
+ */
 
 /**
  * @brief Initialize the HAT SDK.
@@ -221,10 +312,117 @@ SOFTWARE.
  */
 void init_hat_sdk(void);
 
+/**
+ * @brief Initialize an I2C instance with explicit pins.
+ *
+ * Configures @c i2c_default for Fast-mode (400 kHz), sets @p sda_pin and
+ * @p scl_pin to I2C function, and enables pull-ups on both lines.
+ *
+ * @param sda_pin GPIO to use for SDA (e.g., @ref DEFAULT_I2C_SDA_PIN).
+ * @param scl_pin GPIO to use for SCL (e.g., @ref DEFAULT_I2C_SCL_PIN).
+ */
+void init_i2c(uint sda_pin, uint scl_pin);
+
+/**
+ * @brief Initialize the default I2C instance using board default pins.
+ *
+ * Convenience wrapper that calls:
+ * @code
+ * init_i2c(DEFAULT_I2C_SDA_PIN, DEFAULT_I2C_SCL_PIN);
+ * @endcode
+ *
+ * Defaults (from @ref pins.h):
+ * - SDA = @ref DEFAULT_I2C_SDA_PIN  (12)
+ * - SCL = @ref DEFAULT_I2C_SCL_PIN  (13)
+ *
+ * Connected devices on the JTKJ HAT I2C (default bus):
+ * - SSD1306 OLED display               (SSD1306_I2C_ADDRESS (0x3C))
+ * - VEML6030 ambient light sensor      (VEML6030_I2C_ADDRESS (0x10))
+ * - HDC2021 temperature/humidity       (HDC2021_I2C_ADDRESS (0x40))
+ * - ICM-42670 IMU (accel + gyro)       (ICM42670_I2C_ADDRESS (0x69))
+ *
+ * @post @c i2c_default is ready at 400 kHz with pull-ups enabled.
+ */
+void init_i2c_default(void);
+
+/**
+ * @brief Write data to an I2C peripheral.
+ *
+ * Writes a buffer of bytes to the specified I2C address.
+ *
+ * Typical usage: writing a configuration value to a sensor register.
+ *
+ * @code
+ * // Example: write 0x01 into configuration register 0x0E of HDC2021
+ * uint8_t data[2] = {0x0E, 0x01};  // [register, value]
+ * bool ok = i2c_write(HDC2021_I2C_ADDRESS, data, sizeof(data), false);
+ * @endcode
+ *
+ * @param addr   7-bit I2C device address.
+ * @param src    Pointer to data buffer to transmit.
+ * @param len    Number of bytes to write.
+ * @param nostop If true, the transfer does not send a STOP
+ *               condition (repeated start).
+ *
+ * @return @c true if all bytes were written, @c false otherwise.
+ */
+bool i2c_write(uint8_t addr, const uint8_t *src, size_t len, bool nostop);
+
+/**
+ * @brief Read data from an I2C peripheral.
+ *
+ * Reads a buffer of bytes from the specified I2C address.
+ *
+ * Typical usage: reading consecutive registers by first writing
+ * the register address, then reading back the data.
+ *
+ * @code
+ * // Example: read 2 bytes of temperature from HDC2021 (low+high registers)
+ * uint8_t reg = HDC2021_TEMP_LOW;   // starting register
+ * i2c_write(HDC2021_I2C_ADDRESS, &reg, 1, true);   // write register, keep bus active
+ *
+ * uint8_t data[2] = {0};
+ * bool ok = i2c_read(HDC2021_I2C_ADDRESS, data, 2, false);
+ *
+ * uint16_t raw = ((uint16_t)data[1] << 8) | data[0]; // combine MSB+LSB
+ * float temp_c = (raw * 165.0f / 65536.0f) - 40.0f;  // convert to Celsius
+ * @endcode
+ *
+ * @param addr   7-bit I2C device address.
+ * @param dst    Pointer to destination buffer.
+ * @param len    Number of bytes to read.
+ * @param nostop If true, the transfer does not send a STOP
+ *               condition (repeated start).
+ *
+ * @return @c true if all bytes were read, @c false otherwise.
+ */
+bool i2c_read(uint8_t addr, uint8_t *dst, size_t len, bool nostop);
+/** @} */ // end of General
+
 
 /* =========================
- *  BUTTONS / SWITCHES
- * ========================= */
+*  BUTTONS / SWITCHES
+* ========================= */
+
+/**
+ * @defgroup buttons Buttons and switches (SW1 / SW2)
+ * @brief Convenience API to initialize and read the two on-board buttons.
+ *
+ * @details
+ * The JTKJ HAT exposes two user buttons connected to GPIO 2 and GPIO 22.
+ * They are configured as digital inputs using the board’s hardware pull-downs.
+ * Use @c gpio_get(SW1_PIN) or @c gpio_get(SW2_PIN) to poll their state.
+ *
+ * Pins:
+ * | Name | Macro       | GPIO |
+ * |------|-------------|------|
+ * | SW1  | @ref SW1_PIN / @ref BUTTON1 | 2 |
+ * | SW2  | @ref SW2_PIN / @ref BUTTON2 | 22 |
+ *
+ * @note Logic is active-high (pressed = 1, released = 0).
+ * @{
+ */
+
 
 /**
  * @brief Initialize switch SW1 (GPIO 2).
@@ -270,9 +468,33 @@ void init_sw2(void);
 void init_button2(void);
 
 
+/** @} */ /* end of group buttons */
+
+
 /* =========================
- *  LEDs
+ *  LEDs (RED + RGB)
  * ========================= */
+
+/**
+ * @defgroup leds_rgb LEDs (red LED and RGB LED)
+ * @brief Helpers to control the red LED and the PWM-driven RGB LED.
+ *
+ * @details
+ * The board exposes one red LED (GPIO 14) and a common-anode RGB LED
+ * driven by PWM on GPIO 18 (R), 19 (G), 20 (B).
+ *
+ * Pins:
+ * | Function  | Macro         | GPIO |
+ * |-----------|---------------|------|
+ * | Red LED   | @ref RED_LED_PIN / @ref LED1 | 14 |
+ * | RGB - Red | @ref RGB_LED_R               | 18 |
+ * | RGB - Grn | @ref RGB_LED_G               | 19 |
+ * | RGB - Blu | @ref RGB_LED_B               | 20 |
+ *
+ * After @ref init_rgb_led, colors are set with @ref rgb_led_write using
+ * 8-bit channels (0 = full on, 255 = off). A simple gamma (square) is applied.
+ * @{
+ */
 
 /**
  * @brief Initialize the onboard LED.
@@ -378,6 +600,42 @@ void rgb_led_write(uint8_t r, uint8_t g, uint8_t b);
  * the pins are available for other use.
  */
 void stop_rgb_led(void);
+/** @} */ // end of group ButtonsLeds
+
+
+/* =========================
+ *  AUDIO (BUZZER + MICROPHONE)
+ * ========================= */
+
+/**
+ * @defgroup audio Audio (Buzzer and Microphone)
+ * @brief High-level API for sound generation and audio capture.
+ *
+ * @details
+ * This module provides simple control for the buzzer (@ref BUZZER_PIN — GPIO 17)
+ * and for the PDM MEMS microphone connected via PIO.
+ *
+ * **Buzzer (@ref BUZZER_PIN — GPIO 17)**
+ * - Output-only pin for tone generation using PWM or software toggling.
+ * - Useful for short alerts, melodies, or feedback tones.
+ *
+ * **Microphone (@ref PDM_CLK — GPIO 15, @ref PDM_DATA — GPIO 16)**
+ * - Based on the [Arm Developer Ecosystem Microphone Library for Pico]
+ *   (https://github.com/ArmDeveloperEcosystem/microphone-library-for-pico/tree/main)
+ * - Uses PIO for PDM capture and OpenPDM2PCM for conversion to PCM.
+ *
+ * Default microphone parameters:
+ * | Setting | Value |
+ * |----------|--------|
+ * | Data pin | @ref PDM_DATA (GPIO 16) |
+ * | Clock pin | @ref PDM_CLK (GPIO 15) |
+ * | Sample rate | 16 kHz |
+ * | Buffer size | 256 samples |
+ *
+ * @note Buzzer functions are blocking (CPU toggles pin for duration).
+ * Microphone functions use interrupts and DMA to collect samples asynchronously.
+ * @{
+ */
 
 
 /* =========================
@@ -491,94 +749,54 @@ void pdm_microphone_set_callback(pdm_samples_ready_handler_t handler);
  */
 int get_microphone_samples(int16_t *buffer, size_t samples);
 
-
-
 /**
- * @brief Initialize an I²C instance with explicit pins.
- *
- * Configures @c i2c_default for Fast-mode (400 kHz), sets @p sda_pin and
- * @p scl_pin to I²C function, and enables pull-ups on both lines.
- *
- * @param sda_pin GPIO to use for SDA (e.g., @ref DEFAULT_I2C_SDA_PIN).
- * @param scl_pin GPIO to use for SCL (e.g., @ref DEFAULT_I2C_SCL_PIN).
- */
-void init_i2c(uint sda_pin, uint scl_pin);
-
-/**
- * @brief Initialize the default I²C instance using board default pins.
- *
- * Convenience wrapper that calls:
- * @code
- * init_i2c(DEFAULT_I2C_SDA_PIN, DEFAULT_I2C_SCL_PIN);
- * @endcode
- *
- * Defaults (from @ref pins.h):
- * - SDA = @ref DEFAULT_I2C_SDA_PIN  (12)
- * - SCL = @ref DEFAULT_I2C_SCL_PIN  (13)
- *
- * Connected devices on the JTKJ HAT (default bus):
- * - SSD1306 OLED display               (0x3C)
- * - VEML6030 ambient light sensor      (0x10)
- * - HDC2021 temperature/humidity       (0x40)
- * - ICM-42670 IMU (accel + gyro)       (0x69)
- *
- * @post @c i2c_default is ready at 400 kHz with pull-ups enabled.
- */
-void init_i2c_default(void);
-
-/**
- * @brief Write data to an I²C device.
- *
- * Writes a buffer of bytes to the specified I²C address.
- *
- * Typical usage: writing a configuration value to a sensor register.
+ * @example mic_minimal.c
+ * @brief Minimal microphone-only usage (no SDK init, no printing).
  *
  * @code
- * // Example: write 0x01 into configuration register 0x0E of HDC2021
- * uint8_t data[2] = {0x0E, 0x01};  // [register, value]
- * bool ok = i2c_write(HDC2021_I2C_ADDRESS, data, sizeof(data), false);
+ * #include <pico/stdlib.h>
+ * #include <tkjhat/sdk.h>
+ *
+ * // Internal sample buffer for PCM data
+ * static int16_t sample_buffer[MEMS_BUFFER_SIZE];
+ * static volatile int samples_ready = 0;
+ *
+ * // Called when a new batch of samples is available
+ * static void on_sound_buffer_ready(void) {
+ *     // Copy up to MEMS_BUFFER_SIZE samples into our buffer
+ *     samples_ready = get_microphone_samples(sample_buffer, MEMS_BUFFER_SIZE);
+ * }
+ *
+ * int main(void) {
+ *     // Microphone init and start
+ *     if (init_pdm_microphone() < 0) {
+ *         // handle init error (optional)
+ *         while (1) { tight_loop_contents(); }
+ *     }
+ *     pdm_microphone_set_callback(on_sound_buffer_ready);
+ *
+ *     if (init_microphone_sampling() < 0) {
+ *         // handle start error (optional)
+ *         while (1) { tight_loop_contents(); }
+ *     }
+ *
+ *     // Main loop: react when a buffer of samples arrives
+ *     while (true) {
+ *         if (samples_ready > 0) {
+ *             // TODO: process samples in sample_buffer[0 .. samples_ready-1]
+ *             // e.g., compute RMS, detect peaks, etc.
+ *             samples_ready = 0;
+ *         }
+ *         tight_loop_contents(); // lightweight idle
+ *     }
+ *
+ *     // If you ever need to stop sampling (unreached here):
+ *     // end_microphone_sampling();
+ *     // return 0;
+ * }
  * @endcode
- *
- * @param addr   7-bit I²C device address.
- * @param src    Pointer to data buffer to transmit.
- * @param len    Number of bytes to write.
- * @param nostop If true, the transfer does not send a STOP
- *               condition (repeated start).
- *
- * @return @c true if all bytes were written, @c false otherwise.
  */
-bool i2c_write(uint8_t addr, const uint8_t *src, size_t len, bool nostop);
-
-/**
- * @brief Read data from an I²C device.
- *
- * Reads a buffer of bytes from the specified I²C address.
- *
- * Typical usage: reading consecutive registers by first writing
- * the register address, then reading back the data.
- *
- * @code
- * // Example: read 2 bytes of temperature from HDC2021 (low+high registers)
- * uint8_t reg = HDC2021_TEMP_LOW;   // starting register
- * i2c_write(HDC2021_I2C_ADDRESS, &reg, 1, true);   // write register, keep bus active
- *
- * uint8_t data[2] = {0};
- * bool ok = i2c_read(HDC2021_I2C_ADDRESS, data, 2, false);
- *
- * uint16_t raw = ((uint16_t)data[1] << 8) | data[0]; // combine MSB+LSB
- * float temp_c = (raw * 165.0f / 65536.0f) - 40.0f;  // convert to Celsius
- * @endcode
- *
- * @param addr   7-bit I²C device address.
- * @param dst    Pointer to destination buffer.
- * @param len    Number of bytes to read.
- * @param nostop If true, the transfer does not send a STOP
- *               condition (repeated start).
- *
- * @return @c true if all bytes were read, @c false otherwise.
- */
-bool i2c_read(uint8_t addr, uint8_t *dst, size_t len, bool nostop);
-
+/** @} */ // end of group Audio
 
 /* =========================
  *  DISPLAY SSD1306
@@ -587,23 +805,34 @@ bool i2c_read(uint8_t addr, uint8_t *dst, size_t len, bool nostop);
 // Library used can be found at: https://github.com/daschr/pico-ssd1306https://github.com/daschr/pico-ssd1306
 
 /**
- * @defgroup Display SSD1306 (I²C addr 0x3C)
- * @brief Convenience API for the 128×64 SSD1306 I²C OLED (addr 0x3C).
+ * @defgroup display Display (SSD1306 OLED)
+ * @brief Convenience API for the 128×64 SSD1306 I2C OLED display.
+ * @details
+ * The display is connected to the I2C bus using address @ref SSD1306_I2C_ADDRESS (0x3C).
+ * This module provides simple drawing functions using the bundled
+ * [pico-ssd1306 library](https://github.com/daschr/pico-ssd1306).
  *
- * Uses the bundled pico-ssd1306 library to draw text and simple shapes.
- *
- * @see https://github.com/daschr/pico-ssd1306
  * @see SSD1306 datasheet: https://cdn-shop.adafruit.com/datasheets/SSD1306.pdf
+ *
+ * Default connections:
+ * | Signal | I2C Macro | GPIO | Description |
+ * |---------|-----------|------|-------------|
+ * | SDA | @ref DEFAULT_I2C_SDA_PIN | 12 | I2C data |
+ * | SCL | @ref DEFAULT_I2C_SCL_PIN | 13 | I2C clock |
+ * | Address | @ref SSD1306_I2C_ADDRESS | 0x3C | OLED I2C address |
+ *
+ * @pre The I2C interface must be initialized (use @ref init_i2c_default() or @ref init_hat_sdk()).
  * @{
  */
 
+
 /**
- * @brief Initialize the SSD1306 OLED (I²C addr 0x3C).
+ * @brief Initialize the SSD1306 OLED (@ref SSD1306_I2C_ADDRESS — 0x3C).
  *
  * Sets up an internal @c ssd1306_t instance (128×64), powers the panel on,
  * and clears the off-screen buffer.
  *
- * @pre Call @c init_i2c_default before this function.
+ * @pre Call @c init_i2c_default or @c init_hat_sdk before this function.
  *
  * @post The display is powered on and ready to draw.
  */
@@ -663,7 +892,6 @@ void set_text_cursor (int16_t x0, int16_t y0);
  * @param fill If @c true, draws a filled disk; otherwise, only the outline.
  *
  * @post Calls @c ssd1306_show() once at the end.
- * @complexity O(r)
  */
 void draw_circle(int16_t x0, int16_t y0, int16_t r, bool fill);
 
@@ -712,6 +940,29 @@ void clear_display(void);
  */
 void stop_display(void);
 
+/**
+ * @example display_minimal.c
+ * @brief Minimal example of using the SSD1306 OLED display.
+ *
+ * @code
+ * #include <pico/stdlib.h>
+ * #include <tkjhat/sdk.h>
+ *
+ * int main(void) {
+ *     init_hat_sdk();      // Initialize I2C (SDA=@ref DEFAULT_I2C_SDA_PIN, SCL=@ref DEFAULT_I2C_SCL_PIN)
+ *     init_display();          // Initialize SSD1306 (@ref SSD1306_I2C_ADDRESS — 0x3C)
+ *
+ *     clear_display();         // Start clean
+ *     write_text_xy(10, 20, "Hello!"); // Write text
+ *
+ *     draw_circle(64, 32, 10, false);  // Draw circle outline
+ *     draw_square(0, 0, 20, 20, true); // Draw filled rectangle
+ *
+ *     while (true) { tight_loop_contents(); }
+ * }
+ * @endcode
+ */
+
 /** @} */ // end of group Display
 
 
@@ -724,29 +975,42 @@ void stop_display(void);
 // Datasheet: https://www.vishay.com/docs/84366/veml6030.pdf
 
 /**
- * @defgroup VEML6030 Ambient light sensor (VEML6030, I²C addr 0x10)
- * @brief API to configure and read the Vishay VEML6030 light sensor.
+ * @defgroup veml6030 Ambient light sensor (VEML6030)
+ * @brief API to configure and read the Vishay VEML6030 ambient light sensor.
  *
- * The VEML6030 is a high-sensitivity ambient light sensor with a 16-bit
- * dynamic range. On the JTKJ HAT it is connected via the default I²C bus
- * at address 0x10.
+ * @details
+ * The VEML6030 is a high-sensitivity ambient light sensor connected
+ * through the I2C bus at address @ref VEML6030_I2C_ADDR (0x10).
+ * It provides a 16-bit dynamic range and adjustable gain and
+ * integration time for accurate lux readings.
  *
- * @see SparkFun guide: https://learn.sparkfun.com/tutorials/qwiic-ambient-light-sensor-veml6030-hookup-guide/all#arduino-library
- * @see Application note: https://www.vishay.com/docs/84367/designingveml6030.pdf
+ * Default connections:
+ * | Signal | I2C Macro | GPIO | Description |
+ * |---------|-----------|------|-------------|
+ * | SDA | @ref DEFAULT_I2C_SDA_PIN | 12 | I2C data |
+ * | SCL | @ref DEFAULT_I2C_SCL_PIN | 13 | I2C clock |
+ * | Address | @ref VEML6030_I2C_ADDR | 0x10 | Light sensor I2C address |
+ * | Interrupt | @ref VEML6030_INTERRUPT | 9 | Optional interrupt output |
+ *
+ * @pre The I2C interface must be initialized (use @ref init_i2c_default() or @ref init_hat_sdk()).
+ *
+ * @see SparkFun Guide: https://learn.sparkfun.com/tutorials/qwiic-ambient-light-sensor-veml6030-hookup-guide/all#arduino-library  
+ * @see Application Note: https://www.vishay.com/docs/84367/designingveml6030.pdf  
  * @see Datasheet: https://www.vishay.com/docs/84366/veml6030.pdf
  * @{
  */
 
 /**
- * @brief Initialize the VEML6030 light sensor.
+ * @brief Initialize the VEML6030 light sensor (@ref VEML6030_I2C_ADDR — 0x10).
  *
  * Configures the sensor with default parameters:
- * - Gain: 1/8
- * - Integration time: 100 ms
- * - Power: ON
+ * - Gain: 1/8  
+ * - Integration time: 100 ms  
+ * - Power: ON  
  * - Interrupts: disabled
  *
- * @note Call @c init_i2c_default before this function.
+ * @pre Call @ref init_i2c_default() or @ref init_hat_sdk() before this function.
+ * @post The sensor is configured and ready to measure ambient light.
  */
 void init_veml6030(void);
 
@@ -769,9 +1033,33 @@ uint32_t veml6030_read_light(void);
  *
  * Places the sensor into a low-power OFF mode by setting the power bit.
  *
- * @note Call @ref veml6030_init again to power it back on and reconfigure.
+ * @note Call @ref veml6030 again to power it back on and reconfigure.
  */
 void veml6030_stop(void);
+
+/**
+ * @example veml6030_minimal.c
+ * @brief Minimal example of using the VEML6030 ambient light sensor.
+ *
+ * @code
+ * #include <pico/stdlib.h>
+ * #include <tkjhat/sdk.h>
+ *
+ * int main(void) {
+ *     init_i2c_default();     // or init_hat_sdk()
+ *     init_veml6030();        // Initialize VEML6030 (@ref VEML6030_I2C_ADDR — 0x10)
+ *
+ *     while (true) {
+ *         uint32_t lux = veml6030_read_light();
+ *         // TODO: use lux value (e.g., threshold logic or UART print)
+ *         sleep_ms(200);
+ *     }
+ *
+ *     veml6030_stop();        // Optional: power down sensor
+ *     return 0;
+ * }
+ * @endcode
+ */
 
 /** @} */ // end of group VEML6030
 
@@ -785,45 +1073,57 @@ void veml6030_stop(void);
 // Usage: https://www.ti.com/lit/ug/snau250/snau250.pdf?ts=1757438909914
 
 /**
- * @defgroup HDC2021 Temperature & Humidity sensor (HDC2021, I²C addr 0x40)
- * @brief API for the Texas Instruments HDC2021 digital temperature
- * and humidity sensor.
+ * @defgroup hdc2021 Temperature & Humidity sensor (HDC2021)
+ * @brief API for the Texas Instruments HDC2021 digital temperature and humidity sensor.
  *
- * On the JTKJ HAT, the HDC2021 is connected via the default I²C bus
- * at address 0x40. It continuously measures temperature and humidity
- * at 1 Hz with 14-bit resolution.
+ * @details
+ * The HDC2021 is a low-power, high-accuracy sensor connected via I2C at
+ * address @ref HDC2021_I2C_ADDRESS (0x40). It measures both temperature
+ * and relative humidity with 14-bit resolution.
  *
- * Default thresholds configured by ::hdc2021_init():
- * - Temperature low:  -30 °C
- * - Temperature high: +50 °C
- * - Humidity low:       0 %
- * - Humidity high:    100 %
+ * Default connections:
+ * | Signal | I2C Macro | GPIO | Description |
+ * |---------|-----------|------|-------------|
+ * | SDA | @ref DEFAULT_I2C_SDA_PIN | 12 | I2C data |
+ * | SCL | @ref DEFAULT_I2C_SCL_PIN | 13 | I2C clock |
+ * | Address | @ref HDC2021_I2C_ADDRESS | 0x40 | Sensor I2C address |
+ * | Interrupt | @ref HDC2021_INTERRUPT | 21 | Optional alert pin |
  *
- * These thresholds correspond to the sensor’s alert mechanism.
- * However, **interrupt/alert handling is not yet implemented
- * in this SDK**. Threshold functions are provided for completeness
- * but are not required in normal polling mode.
+ * Default thresholds configured by @ref init_hdc2021_():
+ * - Temperature low:  -30 °C  
+ * - Temperature high: +50 °C  
+ * - Humidity low:       0 %  
+ * - Humidity high:    100 %  
  *
- * For simple use (polling values), it is sufficient to call
- * ::hdc2021_init(), then use ::hdc2021_read_temperature() and
- * ::hdc2021_read_humidity().
+ * These thresholds are part of the sensor’s alert system.
+ * Interrupts are **not yet implemented** in this SDK, but threshold
+ * functions are provided for compatibility and future use.
  *
- * @see Datasheet: https://www.ti.com/lit/ds/symlink/hdc2021.pdf?ts=1757522824481&ref_url=https%253A%252F%252Fwww.ti.com%252Fproduct%252FHDC2021
- * @see Usage Guide: https://www.ti.com/lit/ug/snau250/snau250.pdf?ts=1757438909914
+ * For basic polling:
+ * 1. Call @ref init_hdc2021_()
+ * 2. Read temperature and humidity with:
+ *    @code
+ *    float temp = hdc2021_read_temperature();
+ *    float humid = hdc2021_read_humidity();
+ *    @endcode
+ *
+ * @pre The I2C interface must be initialized (use @ref init_i2c_default() or @ref init_hat_sdk()).
+ *
+ * @see Datasheet: https://www.ti.com/lit/ds/symlink/hdc2021.pdf  
+ * @see Usage Guide: https://www.ti.com/lit/ug/snau250/snau250.pdf
  * @{
  */
 
 /**
- * @brief Initialize the HDC2021 sensor.
+ * @brief Initialize the HDC2021 sensor (@ref HDC2021_I2C_ADDRESS — 0x40).
  *
- * Performs a soft reset and configures the device with default
- * thresholds and continuous measurement mode:
- * - 1 Hz sampling
- * - 14-bit resolution for both temperature and humidity
- * - Thresholds: -30 °C low, +50 °C high, 0 % low, 100 % high
- * 
- * @note Call @c init_i2c_default before this function.
- * 
+ * Performs a soft reset and configures the sensor for continuous
+ * measurement mode with default thresholds and 1 Hz sampling rate:
+ * - Resolution: 14 bits (temperature and humidity)
+ * - Thresholds: -30 °C / +50 °C and 0 % / 100 %
+ *
+ * @pre Call @ref init_i2c_default() or @ref init_hat_sdk() before this function.
+ * @post The sensor starts continuous measurement and is ready for reading.
  */
 void init_hdc2021_(void);
 
@@ -880,6 +1180,31 @@ float hdc2021_read_temperature(void);
  */
 float hdc2021_read_humidity(void);
 
+/**
+ * @example hdc2021_minimal.c
+ * @brief Minimal example using the HDC2021 temperature and humidity sensor.
+ *
+ * @code
+ * #include <pico/stdlib.h>
+ * #include <tkjhat/sdk.h>
+ *
+ * int main(void) {
+ *     init_i2c_default();   // or init_hat_sdk()
+ *     init_hdc2021_();      // Initialize HDC2021 (@ref HDC2021_I2C_ADDRESS — 0x40)
+ *
+ *     while (true) {
+ *         float temp = hdc2021_read_temperature();
+ *         float humid = hdc2021_read_humidity();
+ *         // TODO: use temp and humid (e.g. display, log, or control)
+ *         sleep_ms(1000);
+ *     }
+ *
+ *     stop_hdc2021();
+ *     return 0;
+ * }
+ * @endcode
+ */
+
 /** @} */ // end of group HDC2021
 
 
@@ -889,33 +1214,35 @@ float hdc2021_read_humidity(void);
 // Datasheet: https://invensense.tdk.com/wp-content/uploads/2021/07/DS-000451-ICM-42670-P-v1.0.pdf
 
 /**
- * @defgroup ICM42670 IMU (ICM-42670-P, I²C addr 0x69)
+ * @defgroup icm42670 IMU (ICM-42670-P)
  * @brief API for the TDK InvenSense ICM-42670 6-axis accelerometer + gyroscope.
  *
- * ### Recommended defaults
- * - Accelerometer: ±@ref ICM42670_ACCEL_FSR_DEFAULT g,
- *                  @ref ICM42670_ACCEL_ODR_DEFAULT Hz
+ * @details
+ * The IMU is connected on I2C at @ref ICM42670_I2C_ADDRESS (0x69).
+ *
+ * **Recommended defaults**
+ * - Accelerometer: ±@ref ICM42670_ACCEL_FSR_DEFAULT g at @ref ICM42670_ACCEL_ODR_DEFAULT Hz  
  *   (typically: ±4 g @ 100 Hz)
- * - Gyroscope:    ±@ref ICM42670_GYRO_FSR_DEFAULT dps,
- *                  @ref ICM42670_GYRO_ODR_DEFAULT Hz
+ * - Gyroscope:    ±@ref ICM42670_GYRO_FSR_DEFAULT dps at @ref ICM42670_GYRO_ODR_DEFAULT Hz  
  *   (typically: ±250 dps @ 100 Hz)
  *
- * ### Modes
- * - This SDK supports **Low-Noise (LN) mode** (higher precision, higher power).
- * - Other modes (LP/ULP/hybrid) are not yet implemented in this SDK.
+ * **Modes**
+ * - This SDK supports Low-Noise (LN) mode (higher precision, higher power).
+ * - Other modes (LP/ULP/hybrid) are not implemented in this SDK.
  *
+ * @pre The I2C interface must be initialized (use @ref init_i2c_default() or @ref init_hat_sdk()).
  * @see Datasheet: https://invensense.tdk.com/wp-content/uploads/2021/07/DS-000451-ICM-42670-P-v1.0.pdf
  * @{
  */
 
 /**
- * @brief Initialize the IMU.
+ * @brief Initialize the IMU (@ref ICM42670_I2C_ADDRESS — 0x69).
  *
- * Performs a soft reset and check the connection.
+ * Performs a soft reset and verifies device identity (WHO_AM_I).
  *
  * @return 0 on success, negative value on error.
- * 
- * @note Call @c init_i2c_default before this function.
+ *
+ * @pre Call @ref init_i2c_default() or @ref init_hat_sdk() before this function.
  */
 int init_ICM42670(void);
 
@@ -960,7 +1287,7 @@ int ICM42670_enable_accel_gyro_ln_mode(void);
  *                         @ref ICM42670_GYRO_FSR_DEFAULT)
  * - ::ICM42670_enable_accel_gyro_ln_mode()
  *
- * @pre Call ::ICM42670_init() successfully before this function.
+ * @pre Call ::init_ICM42670() successfully before this function.
  *
  * @return 0 on success, negative error code from the first failing call.
  */
@@ -970,7 +1297,7 @@ int ICM42670_start_with_default_values(void);
  * @brief Read accelerometer, gyroscope, and temperature data.
  *
  * Units:
- * - Acceleration (@p ax, @p ay, @p az) in **g** (where 1 g ≈ 9.81 m/s²).
+ * - Acceleration (@p ax, @p ay, @p az) in **g** (where 1 g ≈ 9.81 m/s2).
  *   At rest, the axis aligned with gravity will read about **±1 g**
  * - Angular rate (@p gx, @p gy, @p gz) in **degrees/second (dps)**.
  * - Temperature (@p t) in **°C**.
