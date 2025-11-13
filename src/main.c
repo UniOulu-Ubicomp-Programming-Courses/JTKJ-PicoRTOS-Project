@@ -1,6 +1,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 #include <pico/stdlib.h>
 
@@ -20,31 +21,24 @@
 #define DEFAULT_I2C_SDA_PIN  12
 #define DEFAULT_I2C_SCL_PIN  13
 #define DATASIZE 5
+#define GYROTHRESHOLD 0.5
 
 enum state {WAITING=1, DATA_READY};
 enum state programState = WAITING;
 
 float normal_IMUGyro[3];
 float saved_IMUGyro[DATASIZE][3];
-
 int saveData_it = 0;
-int testVar = 0;
-
-char morseMessage[] = "";
-
-void gyro_data();
+char *morseMessage = "";
 
 static void btn_fxn(uint gpio, uint32_t eventMask) {
+    toggle_red_led();
     if (gpio == BUTTON1) {
-        blink_red_led(1);
-        testVar = 15;
         programState = DATA_READY;
-        gyro_data();
     }
 
     else if (gpio == BUTTON2) {
-        blink_red_led(2);
-        testVar = 5;
+        // printf("%s", morseMessage);
     }
 }
 
@@ -56,22 +50,21 @@ static void sensor_task(void *arg){
             float ax, ay, az, gx, gy, gz, t;
             if(ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &t) == 0) {
                 float all_IMUData[7] = {ax, ay, az, gx, gy, gz, t};
-                // Filter and normalize gyroscope values
+                // Filter and normalize gyroscope absolute values
                 for(int i = 3; i < 6; i++) {
-                    normal_IMUGyro[i-3] = (all_IMUData[i]) / (ICM42670_GYRO_FSR_DEFAULT);
+                    normal_IMUGyro[i-3] = (fabs(all_IMUData[i])) / (ICM42670_GYRO_FSR_DEFAULT);
                 }
                 // Save the last n = DATASIZE gyro values into a matrix
                 // If the last n = DATASIZE gyro values have been saved, reset saveData_it iterator to 0
                 if(saveData_it < DATASIZE){
-                    for(int j = 0; j < 3; j++) {
-                        saved_IMUGyro[saveData_it][j] = normal_IMUGyro[j];
+                    for(int i = 0; i < 3; i++) {
+                        saved_IMUGyro[saveData_it][i] = normal_IMUGyro[i];
                     }
                     saveData_it++;
                 }
                 else {
                     saveData_it = 0;
                 }
-                
             }
         }   
         // Do not remove this
@@ -84,9 +77,55 @@ static void print_task(void *arg){
     while(1){
         // Print data when programState = DATA_READY
         if(programState == DATA_READY) {
-            printf("[Gx,    Gy,     Gz]\n");
+            float maxVal = 0;
+            int maxVal_i = 0;
+            int maxVal_j = 0;
+            printf("\n[ Gx    Gy    Gz ]");
+
+            // Loop through saved_IMUGyro
             for(int i = 0; i < DATASIZE; i++) {
-                printf("[%+.2f, %+.2f, %+.2f]\n", saved_IMUGyro[i][0], saved_IMUGyro[i][1], saved_IMUGyro[i][2]);
+                printf("\n[%.2f, %.2f, %.2f]", saved_IMUGyro[i][0], saved_IMUGyro[i][1], saved_IMUGyro[i][2]);
+                
+                // Check which axis has the largest value
+                for(int j = 0; j < 3; j++) {
+                    if(saved_IMUGyro[i][j] > GYROTHRESHOLD && saved_IMUGyro[i][j] > maxVal) {
+                        maxVal = saved_IMUGyro[i][j];
+                        maxVal_i = i;
+                        maxVal_j = j;
+                    }
+                }
+            }
+
+            // Check that maxVal has been given and then print dot, dash or space
+            if(maxVal > GYROTHRESHOLD) {
+                // Label the detected axis
+                char *axis;
+                switch(maxVal_j) {
+                    case 0:
+                        axis = "Gx";
+                        break;
+                    case 1:
+                        axis = "Gy";
+                        break;
+                    case 2:
+                        axis = "Gz";
+                        break;
+                }
+                printf("\nLARGEST SAVED GYRO DATA OF AXIS (%s) -- ", axis);
+                switch(maxVal_j) {
+                    case 0:
+                        // morseMessage += '.';
+                        printf("[.]");
+                        break;
+                    case 1:
+                        // morseMessage += '-';
+                        printf("[-]");
+                        break;
+                    case 2:
+                        // morseMessage += ' ';
+                        printf("[SPACE]");
+                        break;
+                }
             }
             printf("\n");
             programState = WAITING;
@@ -111,22 +150,6 @@ static void print_task(void *arg){
         // Do not remove this
         vTaskDelay(pdMS_TO_TICKS(500));
     }
-}
-
-void gyro_data() {
-    testVar = 200;
-    // printf("Gyro function\n");
-    // printf("SAVED GYRO DATA ------- Gx: %+.2f Gy: %+.2f Gz: %+.2f \n", saved_IMUData[10][0], saved_IMUData[10][1], saved_IMUData[10][2]);
-
-    // Loop through saved_IMUGyro and check for a gyro value of +-0.5
-    for(int i = 0; i < DATASIZE; i++) {
-        for(int j = 0; j < 3; j++) {
-            if(saved_IMUGyro[i][j] > 0.5 || saved_IMUGyro[i][j] < -0.5) {
-                printf("LARGEST SAVED GYRO DATA ------- Gx: %+.2f Gy: %+.2f Gz: %+.2f \n", saved_IMUGyro[i][0], saved_IMUGyro[i][1], saved_IMUGyro[i][2]);
-            }
-        }
-    }
-    programState = WAITING;
 }
 
 // static void saveTask (void *arg){
