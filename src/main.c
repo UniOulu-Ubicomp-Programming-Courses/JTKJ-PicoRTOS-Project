@@ -19,79 +19,74 @@
 #define CDC_ITF_TX      1
 #define DEFAULT_I2C_SDA_PIN  12
 #define DEFAULT_I2C_SCL_PIN  13
-#define DATASIZE 10
+#define DATASIZE 5
 
 enum state {WAITING=1, DATA_READY};
 enum state programState = WAITING;
 
-float normal_IMUData[3];
-float saved_IMUData[DATASIZE][3];
+float normal_IMUGyro[3];
+float saved_IMUGyro[DATASIZE][3];
 
-// void gyro_data();
-
-int iteration = 0;
-
+int saveData_it = 0;
 int testVar = 0;
 
+char morseMessage[] = "";
+
+void gyro_data();
+
 static void btn_fxn(uint gpio, uint32_t eventMask) {
-    toggle_red_led();
     if (gpio == BUTTON1) {
+        blink_red_led(1);
         testVar = 15;
         programState = DATA_READY;
-        // Gyrodata funktio
-        // gyro_data();
+        gyro_data();
     }
 
     else if (gpio == BUTTON2) {
+        blink_red_led(2);
         testVar = 5;
     }
 }
 
 static void sensor_task(void *arg){
-    init_ICM42670();
-    ICM42670_start_with_default_values();
     (void)arg;
     for(;;){
+        // Collect data when programState == WAITING
         if(programState == WAITING) {
             float ax, ay, az, gx, gy, gz, t;
             if(ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &t) == 0) {
-                float array_IMUData[7] = {ax, ay, az, gx, gy, gz, t};
+                float all_IMUData[7] = {ax, ay, az, gx, gy, gz, t};
                 // Filter and normalize gyroscope values
-                for(int i = 3; i <= 5; i++) {
-                    // if(normal_IMUData[i] == 0) {
-                    //     normal_IMUData[i] = 0;
-                    //     continue;
-                    // }
-                    normal_IMUData[i-3] = (array_IMUData[i]) / (ICM42670_GYRO_FSR_DEFAULT);
+                for(int i = 3; i < 6; i++) {
+                    normal_IMUGyro[i-3] = (all_IMUData[i]) / (ICM42670_GYRO_FSR_DEFAULT);
                 }
-                // Save the last n = DATASIZE xyz values into an array
-                for(iteration; iteration < DATASIZE; iteration++) {
-                    if(iteration != DATASIZE-1) {
-                        for(int j = 0; j < 3; j++) {
-                            saved_IMUData[iteration][j] = normal_IMUData[j];
-                        }
+                // Save the last n = DATASIZE gyro values into a matrix
+                // If the last n = DATASIZE gyro values have been saved, reset saveData_it iterator to 0
+                if(saveData_it < DATASIZE){
+                    for(int j = 0; j < 3; j++) {
+                        saved_IMUGyro[saveData_it][j] = normal_IMUGyro[j];
                     }
-                    else {
-                        iteration = 0;
-                    }
-
+                    saveData_it++;
                 }
-            // programState = DATA_READY;
+                else {
+                    saveData_it = 0;
+                }
+                
             }
         }   
         // Do not remove this
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
 static void print_task(void *arg){
     (void)arg;
     while(1){
+        // Print data when programState = DATA_READY
         if(programState == DATA_READY) {
-            // printf("Gx: %.2f Gy: %.2f Gz: %.2f testVar: %d \n", normal_IMUData[0], normal_IMUData[1], normal_IMUData[2], testVar);
             printf("[Gx,    Gy,     Gz]\n");
             for(int i = 0; i < DATASIZE; i++) {
-                printf("[%.2f, %.2f, %.2f]\n", saved_IMUData[i][0], saved_IMUData[i][1], saved_IMUData[i][2]);
+                printf("[%+.2f, %+.2f, %+.2f]\n", saved_IMUGyro[i][0], saved_IMUGyro[i][1], saved_IMUGyro[i][2]);
             }
             printf("\n");
             programState = WAITING;
@@ -114,28 +109,25 @@ static void print_task(void *arg){
         //            timestamp, luminance
 
         // Do not remove this
-        vTaskDelay(pdMS_TO_TICKS(300));
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
 
-// void gyro_data() {
-//     // printf("Gyro function\n");
-//     // printf("SAVED GYRO DATA ------- Gx: %.2f Gy: %.2f Gz: %.2f \n", saved_IMUData[10][0], saved_IMUData[10][1], saved_IMUData[10][2]);
-//     testVar = 200;
-//     // for(int i = 0; i < DATASIZE; i++) {
-//         // for(int j = 0; j < 3; j++) {
-//         //     saved_IMUData[i][j] 
-//         // }   
-//         if(saved_IMUData[i][0] > 0.5 || saved_IMUData[i][0] < -0.5) {
-//             printf("LARGEST SAVED GYRO DATA ------- Gx: %.2f Gy: %.2f Gz: %.2f \n", saved_IMUData[i][0], saved_IMUData[i][1], saved_IMUData[i][2]);
-//         }
-//     }
-//     printf("[Gx,    Gy,     Gz]\n");
-//     for(int i = 0; i < DATASIZE; i++) {
-//         printf("[%.2f, %.2f, %.2f]\n", saved_IMUData[i][0], saved_IMUData[i][1], saved_IMUData[i][2]);
-//     }
-//     programState = WAITING;
-// }
+void gyro_data() {
+    testVar = 200;
+    // printf("Gyro function\n");
+    // printf("SAVED GYRO DATA ------- Gx: %+.2f Gy: %+.2f Gz: %+.2f \n", saved_IMUData[10][0], saved_IMUData[10][1], saved_IMUData[10][2]);
+
+    // Loop through saved_IMUGyro and check for a gyro value of +-0.5
+    for(int i = 0; i < DATASIZE; i++) {
+        for(int j = 0; j < 3; j++) {
+            if(saved_IMUGyro[i][j] > 0.5 || saved_IMUGyro[i][j] < -0.5) {
+                printf("LARGEST SAVED GYRO DATA ------- Gx: %+.2f Gy: %+.2f Gz: %+.2f \n", saved_IMUGyro[i][0], saved_IMUGyro[i][1], saved_IMUGyro[i][2]);
+            }
+        }
+    }
+    programState = WAITING;
+}
 
 // static void saveTask (void *arg){
 //         vTaskDelay(pdMS_TO_TICKS(1000));
@@ -184,6 +176,9 @@ int main() {
     init_red_led();
     gpio_set_irq_enabled_with_callback(BUTTON1, GPIO_IRQ_EDGE_FALL, true, btn_fxn);
     gpio_set_irq_enabled_with_callback(BUTTON2, GPIO_IRQ_EDGE_FALL, true, btn_fxn);
+
+    init_ICM42670();
+    ICM42670_start_with_default_values();
 
     
     
