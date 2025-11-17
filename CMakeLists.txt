@@ -98,7 +98,7 @@ add_subdirectory(examples/hat_imu_ex)
 add_subdirectory(examples/hat_imu_cdc_ex)
 add_subdirectory(examples/hello_serial_client)
 add_subdirectory(examples/hello_serial_bidirectional_client)
-add_subdirectory(examples/hat_imu_display)
+# add_subdirectory(examples/hat_imu_display)
 #
 # You can edit it if you want to add new examples
 # ==============================================================================================
@@ -126,6 +126,7 @@ target_link_libraries(${MAIN_TARGET}
         FreeRTOS-Kernel
         FreeRTOS-Kernel-Heap4
         TKJHAT_SDK
+        usb_serial_debug
 )
 
 # Include libraries necessaries to control the WiFi. If you are using the internal pico LED in W model, it is also 
@@ -135,7 +136,7 @@ if (PICO_CYW43_SUPPORTED)
 endif()
 
 #Support for stdio (printf, fwrite, puts...) via usb or UART. 
-pico_enable_stdio_usb(${MAIN_TARGET} 1)
+pico_enable_stdio_usb(${MAIN_TARGET} 0)
 pico_enable_stdio_uart(${MAIN_TARGET} 0)
 
 # Create different output files: 
