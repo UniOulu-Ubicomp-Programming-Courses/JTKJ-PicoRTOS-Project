@@ -9,8 +9,8 @@
 #include <queue.h>
 #include <task.h>
 
-#include <tusb.h>
-#include "usbSerialDebug/helper.h"
+// #include <tusb.h>
+// #include "usbSerialDebug/helper.h"
 
 #include "tkjhat/sdk.h"
 
@@ -20,7 +20,7 @@
 #define DEFAULT_I2C_SCL_PIN  13
 #define DATASIZE 5
 #define GYROTHRESHOLD 0.5
-#define BUFFER_SIZE 200
+// #define BUFFER_SIZE 200
 
 enum state {WAITING=1, DATA_READY};
 enum state programState = WAITING;
@@ -31,7 +31,7 @@ int saveData_it = 0;
 char morseMessage[50];
 int msg_index = 0;
 
-uint8_t buffer[BUFFER_SIZE];
+// uint8_t buffer[BUFFER_SIZE];
 
 static void btn_fxn(uint gpio, uint32_t eventMask) {
     toggle_red_led();
@@ -42,7 +42,8 @@ static void btn_fxn(uint gpio, uint32_t eventMask) {
     else if (gpio == BUTTON2) {
         morseMessage[msg_index] = '\n';
         msg_index++;
-        usb_serial_print(morseMessage);
+        // usb_serial_print(morseMessage);
+        printf(morseMessage);
     }
 }
 
@@ -84,14 +85,14 @@ static void print_task(void *arg){
             float maxVal = 0;
             int maxVal_i = 0;
             int maxVal_j = 0;
-            printf("\n[ Gx    Gy    Gz ]");
-            usb_serial_print("\n[ Gx    Gy    Gz ]");
+            printf("__\n[ Gx    Gy    Gz ]__");
+            // usb_serial_print("\n[ Gx    Gy    Gz ]");
 
             // Loop through saved_IMUGyro
             for(int i = 0; i < DATASIZE; i++) {
                 printf("\n[%.2f, %.2f, %.2f]", saved_IMUGyro[i][0], saved_IMUGyro[i][1], saved_IMUGyro[i][2]);
-                sprintf(buffer, "\n[%.2f, %.2f, %.2f]", saved_IMUGyro[i][0], saved_IMUGyro[i][1], saved_IMUGyro[i][2]);
-                usb_serial_print(buffer);
+                // sprintf(buffer, "\n[%.2f, %.2f, %.2f]", saved_IMUGyro[i][0], saved_IMUGyro[i][1], saved_IMUGyro[i][2]);
+                // usb_serial_print(buffer);
                 // Check which axis has the largest value
                 for(int j = 0; j < 3; j++) {
                     if(saved_IMUGyro[i][j] > GYROTHRESHOLD && saved_IMUGyro[i][j] > maxVal) {
@@ -117,37 +118,37 @@ static void print_task(void *arg){
                         axis = "Gz";
                         break;
                 }
-                printf("\nLARGEST SAVED GYRO DATA OF AXIS (%s) -- ", axis);
-                sprintf(buffer, "\nLARGEST SAVED GYRO DATA OF AXIS (%s) -- ", axis);
-                usb_serial_print(buffer);
+                printf("__\nLARGEST SAVED GYRO DATA OF AXIS (%s) -- __", axis);
+                // sprintf(buffer, "\nLARGEST SAVED GYRO DATA OF AXIS (%s) -- ", axis);
+                // usb_serial_print(buffer);
                 switch(maxVal_j) {
                     case 0:
                         morseMessage[msg_index] = '.';
                         msg_index++;
-                        morseMessage[msg_index] = ' ';
-                        msg_index++;
-                        printf("[.]");
-                        usb_serial_print("[.]");
+                        printf("__[.]__");
+                        // usb_serial_print("[.]");
+                        printf("__\n__");
+                        // usb_serial_print("\n");
                         break;
                     case 1:
                         morseMessage[msg_index] = '-';
                         msg_index++;
-                        morseMessage[msg_index] = ' ';
-                        msg_index++;
-                        printf("[-]");
-                        usb_serial_print("[-]");
+                        printf("__[-]__");
+                        // usb_serial_print("[-]");
+                        printf("__\n__");
+                        // usb_serial_print("\n");
                         break;
                     case 2:
                         morseMessage[msg_index] = ' ';
                         msg_index++;
-                        morseMessage[msg_index] = ' ';
-                        msg_index++;
-                        printf("[SPACE]");
-                        usb_serial_print("[SPACE]");
+                        printf("__[SPACE]__");
+                        // usb_serial_print("[SPACE]");
+                        printf("__\n__");
+                        // usb_serial_print("\n");
                         break;
                 }
             }
-            // printf("\n");
+            printf("__\n__");
             // usb_serial_print("\n");
             programState = WAITING;
         }
@@ -182,13 +183,13 @@ static void print_task(void *arg){
 // Tehtävä 4:  Poista seuraavan rivin kommentointi aktivoidaksesi TinyUSB-kirjaston. 
 
 
-static void usbTask(void *arg) {
-    (void)arg;
-    while (1) {
-        tud_task();              // With FreeRTOS wait for events
-                                 // Do not add vTaskDelay. 
-    }
-}
+// static void usbTask(void *arg) {
+//     (void)arg;
+//     while (1) {
+//         tud_task();              // With FreeRTOS wait for events
+//                                  // Do not add vTaskDelay. 
+//     }
+// }
 
 int main() {
 
@@ -205,12 +206,12 @@ int main() {
     //             Lisää CMakeLists.txt-tiedostoon cfg-dual-usbcdc
     //             Poista CMakeLists.txt-tiedostosta käytöstä pico_enable_stdio_usb
 
-    // stdio_init_all();
+    stdio_init_all();
 
     // Uncomment this lines if you want to wait till the serial monitor is connected
-    // while (!tud_cdc_connected()){
-    //     sleep_ms(10);
-    // } 
+    while (!stdio_usb_connected()){
+        sleep_ms(10);
+    } 
     
     init_hat_sdk();
     sleep_ms(300); //Wait some time so initialization of USB and hat is done.
@@ -233,10 +234,10 @@ int main() {
     // joka mahdollistaa kaksikanavaisen USB-viestinnän.
 
     
-    xTaskCreate(usbTask, "usb", 2048, NULL, 3, &hUSB);
-    #if (configNUMBER_OF_CORES > 1)
-        vTaskCoreAffinitySet(hUSB, 1u << 0);
-    #endif
+    // xTaskCreate(usbTask, "usb", 2048, NULL, 3, &hUSB);
+    // #if (configNUMBER_OF_CORES > 1)
+    //     vTaskCoreAffinitySet(hUSB, 1u << 0);
+    // #endif
    
 
 
@@ -249,7 +250,7 @@ int main() {
                 &hSensorTask);                   // (en) A handle to control the execution of this task
 
     if(result != pdPASS) {
-        // usb_serial_print("Sensor task creation failed\n");
+        printf("Sensor task creation failed\n");
         return 0;
     }
     result = xTaskCreate(print_task,  // (en) Task function
@@ -260,14 +261,14 @@ int main() {
                 &hPrintTask);         // (en) A handle to control the execution of this task
 
     if(result != pdPASS) {
-        // usb_serial_print("Print Task creation failed\n");
+        printf("Print Task creation failed\n");
         return 0;
     }
 
     // Initialize TinyUSB 
-    tusb_init();
+    // tusb_init();
     //Initialize helper library to write in CDC0)
-    usb_serial_init();
+    // usb_serial_init();
 
     // Start the scheduler (never returns)
     vTaskStartScheduler();
