@@ -38,11 +38,6 @@
 
 // Morse configuration
 
-#define DOT_MS                 150
-#define DASH_MS                (3 * DOT_MS)
-#define INTER_LETTER_GAP_MS    (3 * DOT_MS)   // for button timing
-#define INTER_WORD_GAP_MS      (7 * DOT_MS)
-
 #define TX_BUF_LEN             256
 #define MORSE_Q_LEN            32
 
@@ -83,7 +78,7 @@ static void status_task(void *arg) {
 
     while (1) {
         printf("status: running...\n");
-        vTaskDelay(pdMS_TO_TICKS(5000));
+        vTaskDelay(pdMS_TO_TICKS(15000));
     }
 }
 
@@ -107,6 +102,7 @@ static void input_task(void *arg)
     const uint32_t SAMPLE_MS       = 20;    // IMU sampling period
     const float    MOVE_THRESHOLD  = 0.35f; // movement starts
     const float    STILL_THRESHOLD = 0.15f; // movement ends
+    const uint32_t MOVEMENT_DELAY_MS = 300; // min delay between movements
 
     // IMU variables
     float ax, ay, az, gx, gy, gz, t;
@@ -115,6 +111,11 @@ static void input_task(void *arg)
     bool btn_prev          = false;
     bool btn_now           = false;
     int button_press_count = 0;        // Count button presses
+
+     // Tilt tracking variables
+    bool x_tilted = false;  // Whether the device was tilted along X-axis
+    bool y_tilted = false;  // Whether the device was tilted along Y-axis
+    uint32_t last_movement_time = 0; // Last time when movement was detected
 
     // Message storage (Morse code buffer)
     char morse_message[512];  // Buffer to store the Morse code message
@@ -150,24 +151,31 @@ static void input_task(void *arg)
             // Check if the device is stationary (ax ~ 0, ay ~ 0, az ~ 1)
             bool is_stationary = (fabsf(ax) < 0.1f && fabsf(ay) < 0.1f && fabsf(az - 1.0f) < 0.1f);
 
+            // Check if enough time has passed since last movement
+            bool movement_cooldown_expired = (now - last_movement_time) > MOVEMENT_DELAY_MS;
+
             // If stationary, only handle button presses for space and don't print dot/dash
-            if (is_stationary) {
+        if (is_stationary) {
                 // Reset tilt flags if stationary
+                x_tilted = false;
+                y_tilted = false;
             } else {
                 // If the device is not stationary, process the tilt for dot or dash
-                if (fabsf(ax) > MOVE_THRESHOLD) {
+                if (fabsf(ax) > MOVE_THRESHOLD && !x_tilted) {
                     // If there's significant tilt along the X-axis, print a dot
                     morse_event_t ev = EV_DOT;
                     xQueueSend(g_morse_q, &ev, portMAX_DELAY);
                     morse_message[morse_msg_index++] = '.';  // Add dot to message
-                    morse_message[morse_msg_index++] = ' ';  // Add space between characters
+                    x_tilted = true;  // Prevent printing the same event repeatedly
+                    button_press_count = 1; // Reset button press count on dot
                     printf("X-axis tilt -> DOT\n");  // Debug message
-                } else if (fabsf(ay) > MOVE_THRESHOLD) {
+                } else if (fabsf(ay) > MOVE_THRESHOLD && !y_tilted) {
                     // If there's significant tilt along the Y-axis, print a dash
                     morse_event_t ev = EV_DASH;
                     xQueueSend(g_morse_q, &ev, portMAX_DELAY);
                     morse_message[morse_msg_index++] = '-';  // Add dash to message
-                    morse_message[morse_msg_index++] = ' ';  // Add space between characters
+                    y_tilted = true;  // Prevent printing the same event repeatedly
+                    button_press_count = 1; // Reset button press count on dash
                     printf("Y-axis tilt -> DASH\n");  // Debug message
                 }
             }
@@ -179,7 +187,6 @@ static void input_task(void *arg)
         // Button pressed down
         if (btn_now && !btn_prev) {
             button_press_count++;  // Increment press count on each press
-            printf("Button pressed %d times\n", button_press_count);  // Debug message
         }
 
         // Button released (now we process the press count)
@@ -190,7 +197,6 @@ static void input_task(void *arg)
                 printf("Button pressed once: Added letter gap\n");
             } else if (button_press_count == 2) {
                 // Double press: add two spaces (gap between words)
-                morse_message[morse_msg_index++] = ' ';
                 morse_message[morse_msg_index++] = ' ';
                 printf("Button pressed twice: Added word gap\n");
             } else if (button_press_count == 3) {
