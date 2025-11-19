@@ -8,9 +8,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # == EDIT at the beginning. Define the Project name and name for the main target (app).=========
 # Define project name
-set(APP_NAME morse_project) 
+set(APP_NAME hat_app) 
 # Define main app (app in this folder)
-set(MAIN_TARGET morse_project)
+set(MAIN_TARGET hat_app)
 #===============================================================================================
 
 # Initialise pico_sdk from installed location
@@ -107,7 +107,7 @@ add_subdirectory(examples/hat_example)
 # Add the source files to be compiled
 # If you add the headers in a different directory, you should use: target_include_directories
 add_executable(${MAIN_TARGET}
-    src/morse_project.c
+    src/main.c
 )
 
 # Links. Add all libraries that application is using. It must at least use the pico_stdlib

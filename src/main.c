@@ -1,211 +1,338 @@
+/*
+ * hat_app / main.c
+ *
+ * Course: Computer Systems
+ * Project: JTKJ – PicoRTOS Project (Tier 1)
+ * Device: Raspberry Pi Pico W + JTKJ Hat
+ *
+ * Authors:
+ *   Tatu Kari
+ *   Elias Peltokorpi
+ *   Eemil Holma
+ *
+ * Description:
+ *   This program reads motions from the IMU sensor and button presses
+ *   from the JTKJ Hat and converts them into Morse code. The Morse
+ *   code is sent over USB (stdio) to the Serial Client program.
+ *
+ *   - IMU movement -> DOT (.) or DASH (-)
+ *   - BUTTON1 press -> spaces and end of message
+ *   - Encoder task formats events into Morse protocol:
+ *         one space between letters,
+ *         two spaces between words,
+ *         two spaces + '\n' at end of message.
+ */
 
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
-#include <pico/stdlib.h>
+#include "pico/stdlib.h"
+#include "pico/stdio_usb.h"
 
-#include <FreeRTOS.h>
-#include <queue.h>
-#include <task.h>
+#include "FreeRTOS.h"
+#include "task.h"
+#include "queue.h"
 
 #include "tkjhat/sdk.h"
 
-// Exercise 4. Include the libraries necessaries to use the usb-serial-debug, and tinyusb
-// Tehtävä 4 . Lisää usb-serial-debugin ja tinyusbin käyttämiseen tarvittavat kirjastot.
+// Morse configuration
 
+#define DOT_MS                 150
+#define DASH_MS                (3 * DOT_MS)
+#define INTER_LETTER_GAP_MS    (3 * DOT_MS)   // for button timing
+#define INTER_WORD_GAP_MS      (7 * DOT_MS)
 
+#define TX_BUF_LEN             256
+#define MORSE_Q_LEN            32
 
-#define DEFAULT_STACK_SIZE 2048
-#define CDC_ITF_TX      1
+// Morse events
 
+typedef enum {
+    EV_DOT,         // '.'
+    EV_DASH,        // '-'
+    EV_GAP_LETTER,  // space between letters
+    EV_GAP_WORD,    // space between words
+    EV_END_MSG      // end of message ("  \n")
+} morse_event_t;
 
-// Tehtävä 3: Tilakoneen esittely Add missing states.
-// Exercise 3: Definition of the state machine. Add missing states.
-enum state { WAITING=1};
-enum state programState = WAITING;
+// Global queue for Morse events
+static QueueHandle_t g_morse_q = NULL;
 
-// Tehtävä 3: Valoisuuden globaali muuttuja
-// Exercise 3: Global variable for ambient light
-uint32_t ambientLight;
+// Forward declarations of tasks
+static void status_task(void *arg);
+static void input_task(void *arg);
+static void encoder_task(void *arg);
 
-static void btn_fxn(uint gpio, uint32_t eventMask) {
-    // Tehtävä 1: Vaihda LEDin tila.
-    //            Tarkista SDK, ja jos et löydä vastaavaa funktiota, sinun täytyy toteuttaa se itse.
-    // Exercise 1: Toggle the LED. 
-    //             Check the SDK and if you do not find a function you would need to implement it yourself. 
+// Helper to get current time in ms
+static inline uint32_t now_ms(void) {
+    return to_ms_since_boot(get_absolute_time());
 }
 
-static void sensor_task(void *arg){
+// status_task: simple status task, prints once per second
+
+static void status_task(void *arg) {
     (void)arg;
-    // Tehtävä 2: Alusta valoisuusanturi. Etsi SDK-dokumentaatiosta sopiva funktio.
-    // Exercise 2: Init the light sensor. Find in the SDK documentation the adequate function.
-   
-    for(;;){
-        
-        // Tehtävä 2: Muokkaa tästä eteenpäin sovelluskoodilla. Kommentoi seuraava rivi.
-        //             
-        // Exercise 2: Modify with application code here. Comment following line.
-        //             Read sensor data and print it out as string; 
-        tight_loop_contents(); 
 
-
-   
-
-
-        // Tehtävä 3:  Muokkaa aiemmin Tehtävässä 2 tehtyä koodia ylempänä.
-        //             Jos olet oikeassa tilassa, tallenna anturin arvo tulostamisen sijaan
-        //             globaaliin muuttujaan.
-        //             Sen jälkeen muuta tilaa.
-        // Exercise 3: Modify previous code done for Exercise 2, in previous lines. 
-        //             If you are in adequate state, instead of printing save the sensor value 
-        //             into the global variable.
-        //             After that, modify state
-
-
-
-
-
-        
-        // Exercise 2. Just for sanity check. Please, comment this out
-        // Tehtävä 2: Just for sanity check. Please, comment this out
-        printf("sensorTask\n");
-
-        // Do not remove this
-        vTaskDelay(pdMS_TO_TICKS(1000));
+    // Wait until USB is connected
+    while (!stdio_usb_connected()) {
+        sleep_ms(10);
     }
-}
 
-static void print_task(void *arg){
-    (void)arg;
-    
-    while(1){
-        
-        // Tehtävä 3: Kun tila on oikea, tulosta sensoridata merkkijonossa debug-ikkunaan
-        //            Muista tilamuutos
-        //            Älä unohda kommentoida seuraavaa koodiriviä.
-        // Exercise 3: Print out sensor data as string to debug window if the state is correct
-        //             Remember to modify state
-        //             Do not forget to comment next line of code.
-        tight_loop_contents();
-        
+    printf("hat_app started\n");
 
-
-        
-        // Exercise 4. Use the usb_serial_print() instead of printf or similar in the previous line.
-        //             Check the rest of the code that you do not have printf (substitute them by usb_serial_print())
-        //             Use the TinyUSB library to send data through the other serial port (CDC 1).
-        //             You can use the functions at https://github.com/hathach/tinyusb/blob/master/src/class/cdc/cdc_device.h
-        //             You can find an example at hello_dual_cdc
-        //             The data written using this should be provided using csv
-        //             timestamp, luminance
-        // Tehtävä 4. Käytä usb_serial_print()-funktiota printf:n tai vastaavien sijaan edellisellä rivillä.
-        //            Tarkista myös muu koodi ja varmista, ettei siinä ole printf-kutsuja
-        //            (korvaa ne usb_serial_print()-funktiolla).
-        //            Käytä TinyUSB-kirjastoa datan lähettämiseen toisen sarjaportin (CDC 1) kautta.
-        //            Voit käyttää funktioita: https://github.com/hathach/tinyusb/blob/master/src/class/cdc/cdc_device.h
-        //            Esimerkki löytyy hello_dual_cdc-projektista.
-        //            Tällä menetelmällä kirjoitettu data tulee antaa CSV-muodossa:
-        //            timestamp, luminance
-
-
-
-
-        // Exercise 3. Just for sanity check. Please, comment this out
-        // Tehtävä 3: Just for sanity check. Please, comment this out
-        printf("printTask\n");
-        
-        // Do not remove this
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-}
-
-
-// Exercise 4: Uncomment the following line to activate the TinyUSB library.  
-// Tehtävä 4:  Poista seuraavan rivin kommentointi aktivoidaksesi TinyUSB-kirjaston. 
-
-/*
-static void usbTask(void *arg) {
-    (void)arg;
     while (1) {
-        tud_task();              // With FreeRTOS wait for events
-                                 // Do not add vTaskDelay. 
+        printf("status: running...\n");
+        vTaskDelay(pdMS_TO_TICKS(5000));
     }
-}*/
+}
 
-int main() {
+// input_task: IMU + BUTTON1 -> Morse events
+//
+//  - IMU:
+//      big movement -> measure duration
+//      short        -> DOT
+//      long         -> DASH
+//
+//  - BUTTON1:
+//      short press   -> EV_GAP_LETTER
+//      medium press  -> EV_GAP_WORD
+//      long press    -> EV_END_MSG
 
-    // Exercise 4: Comment the statement stdio_init_all(); 
-    //             Instead, add AT THE END OF MAIN (before vTaskStartScheduler();) adequate statements to enable the TinyUSB library and the usb-serial-debug.
-    //             You can see hello_dual_cdc for help
-    //             In CMakeLists.txt add the cfg-dual-usbcdc
-    //             In CMakeLists.txt deactivate pico_enable_stdio_usb
-    // Tehtävä 4:  Kommentoi lause stdio_init_all();
-    //             Sen sijaan lisää MAIN LOPPUUN (ennen vTaskStartScheduler();) tarvittavat komennot aktivoidaksesi TinyUSB-kirjaston ja usb-serial-debugin.
-    //             Voit katsoa apua esimerkistä hello_dual_cdc.
-    //             Lisää CMakeLists.txt-tiedostoon cfg-dual-usbcdc
-    //             Poista CMakeLists.txt-tiedostosta käytöstä pico_enable_stdio_usb
+static void input_task(void *arg)
+{
+    (void)arg;
 
+    // Settings
+    const uint32_t SAMPLE_MS       = 20;    // IMU sampling period
+    const float    MOVE_THRESHOLD  = 0.35f; // movement starts
+    const float    STILL_THRESHOLD = 0.15f; // movement ends
+
+    // IMU variables
+    float ax, ay, az, gx, gy, gz, t;
+
+    // Button variables
+    bool btn_prev          = false;
+    bool btn_now           = false;
+    int button_press_count = 0;        // Count button presses
+
+    // Message storage (Morse code buffer)
+    char morse_message[512];  // Buffer to store the Morse code message
+    int morse_msg_index = 0;  // Index to keep track of where we are in the buffer
+
+    // Init JTKJ Hat
+    init_hat_sdk();
+
+    // Init IMU (ICM-42670P)
+    if (init_ICM42670() == 0) {
+        printf("IMU init OK\n");
+        if (ICM42670_start_with_default_values() != 0) {
+            printf("IMU start default values failed\n");
+        }
+    } else {
+        printf("IMU init FAILED\n");
+    }
+
+    // Init BUTTON1 (from TKJHAT)
+    init_sw1();
+    gpio_pull_up(BUTTON1);   // active-low
+
+    while (1) {
+        uint32_t now = now_ms();
+
+        // ---- 1) Read IMU and detect tilt for dot/dash ----
+        if (ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &t) == 0) {
+            // Calculate total acceleration magnitude (normalize to 1g)
+            float amag = sqrtf(ax * ax + ay * ay + az * az);
+            // How much extra acceleration is above gravity (1g)
+            float extra = fabsf(amag - 1.0f);
+
+            // Check if the device is stationary (ax ~ 0, ay ~ 0, az ~ 1)
+            bool is_stationary = (fabsf(ax) < 0.1f && fabsf(ay) < 0.1f && fabsf(az - 1.0f) < 0.1f);
+
+            // If stationary, only handle button presses for space and don't print dot/dash
+            if (is_stationary) {
+                // Reset tilt flags if stationary
+            } else {
+                // If the device is not stationary, process the tilt for dot or dash
+                if (fabsf(ax) > MOVE_THRESHOLD) {
+                    // If there's significant tilt along the X-axis, print a dot
+                    morse_event_t ev = EV_DOT;
+                    xQueueSend(g_morse_q, &ev, portMAX_DELAY);
+                    morse_message[morse_msg_index++] = '.';  // Add dot to message
+                    morse_message[morse_msg_index++] = ' ';  // Add space between characters
+                    printf("X-axis tilt -> DOT\n");  // Debug message
+                } else if (fabsf(ay) > MOVE_THRESHOLD) {
+                    // If there's significant tilt along the Y-axis, print a dash
+                    morse_event_t ev = EV_DASH;
+                    xQueueSend(g_morse_q, &ev, portMAX_DELAY);
+                    morse_message[morse_msg_index++] = '-';  // Add dash to message
+                    morse_message[morse_msg_index++] = ' ';  // Add space between characters
+                    printf("Y-axis tilt -> DASH\n");  // Debug message
+                }
+            }
+        }
+
+        // ---- 2) Read BUTTON1 and detect gaps/end of message ----
+        btn_now = (gpio_get(BUTTON1) == 0); // pressed if 0 (active-low)
+
+        // Button pressed down
+        if (btn_now && !btn_prev) {
+            button_press_count++;  // Increment press count on each press
+            printf("Button pressed %d times\n", button_press_count);  // Debug message
+        }
+
+        // Button released (now we process the press count)
+        if (!btn_now && btn_prev) {
+            if (button_press_count == 1) {
+                // Single press: add a space between characters
+                morse_message[morse_msg_index++] = ' ';
+                printf("Button pressed once: Added letter gap\n");
+            } else if (button_press_count == 2) {
+                // Double press: add two spaces (gap between words)
+                morse_message[morse_msg_index++] = ' ';
+                morse_message[morse_msg_index++] = ' ';
+                printf("Button pressed twice: Added word gap\n");
+            } else if (button_press_count == 3) {
+                // Triple press: end the message
+                morse_message[morse_msg_index] = '\0'; // Null-terminate the message
+                printf("\nMessage: %s\n", morse_message);
+
+                // Add two spaces and line feed to indicate message end
+                strcat(morse_message, "  \n");
+
+                // Print final message with spaces and line feed
+                printf("\nFinal Message Sent: %s\n", morse_message);
+
+                // Reset the message after printing it
+                memset(morse_message, 0, sizeof(morse_message));
+                morse_msg_index = 0;  // Reset the message index
+                printf("Message has been reset.\n");
+
+                // Reset press count for next sequence
+                button_press_count = 0;
+            }
+        }
+
+        btn_prev = btn_now;
+
+        // Sleep a bit before reading the next sample
+        vTaskDelay(pdMS_TO_TICKS(SAMPLE_MS));
+    }
+}
+
+
+
+
+
+
+
+
+// encoder_task: converts events to Morse string and prints to USB
+//
+// Rules:
+//   EV_DOT  -> '.'
+//   EV_DASH -> '-'
+//   EV_GAP_LETTER -> one space ' '
+//   EV_GAP_WORD   -> two spaces "  "
+//   EV_END_MSG    -> ensure string ends with "  \n" and send it
+
+static void encoder_task(void *arg)
+{
+    (void)arg;
+
+    char   out[TX_BUF_LEN];
+    size_t len = 0;
+
+    // initialize buffer
+    memset(out, 0, sizeof(out));
+
+    while (1) {
+        morse_event_t ev;
+
+        if (xQueueReceive(g_morse_q, &ev, portMAX_DELAY) == pdTRUE) {
+
+            switch (ev) {
+            case EV_DOT:
+                if (len + 1 < TX_BUF_LEN) {
+                    out[len++] = '.';
+                }
+                break;
+
+            case EV_DASH:
+                if (len + 1 < TX_BUF_LEN) {
+                    out[len++] = '-';
+                }
+                break;
+
+            case EV_GAP_LETTER:
+                if (len && out[len - 1] != ' ' && len + 1 < TX_BUF_LEN) {
+                    out[len++] = ' ';
+                }
+                break;
+
+            case EV_GAP_WORD:
+                if (len && out[len - 1] != ' ' && len + 1 < TX_BUF_LEN) {
+                    out[len++] = ' ';
+                }
+                if (len + 1 < TX_BUF_LEN) {
+                    out[len++] = ' ';
+                }
+                break;
+
+            case EV_END_MSG:
+                // ensure we end with "  \n"
+                if (len && out[len - 1] != ' ' && len + 1 < TX_BUF_LEN) {
+                    out[len++] = ' ';
+                }
+                if (len + 2 < TX_BUF_LEN) {
+                    out[len++] = ' ';
+                    out[len++] = '\n';
+                }
+
+                // send to Serial Client
+                printf("%.*s", (int)len, out);
+                fflush(stdout);
+
+                // reset buffer
+                len = 0;
+                memset(out, 0, sizeof(out));
+                break;
+            }
+        }
+    }
+}
+
+// main: initializes everything and starts FreeRTOS scheduler
+
+int main(void)
+{
+    // Initialize stdio over USB
     stdio_init_all();
 
-    // Uncomment this lines if you want to wait till the serial monitor is connected
-    /*while (!stdio_usb_connected()){
-        sleep_ms(10);
-    }*/ 
-    
-    init_hat_sdk();
-    sleep_ms(300); //Wait some time so initialization of USB and hat is done.
+    // Small delay so USB is ready
+    sleep_ms(200);
 
-    // Exercise 1: Initialize the button and the led and define an register the corresponding interrupton.
-    //             Interruption handler is defined up as btn_fxn
-    // Tehtävä 1:  Alusta painike ja LEd ja rekisteröi vastaava keskeytys.
-    //             Keskeytyskäsittelijä on määritelty yläpuolella nimellä btn_fxn
-
-
-
-    
-    
-    TaskHandle_t hSensorTask, hPrintTask, hUSB = NULL;
-
-    // Exercise 4: Uncomment this xTaskCreate to create the task that enables dual USB communication.
-    // Tehtävä 4: Poista tämän xTaskCreate-rivin kommentointi luodaksesi tehtävän,
-    // joka mahdollistaa kaksikanavaisen USB-viestinnän.
-
-    /*
-    xTaskCreate(usbTask, "usb", 2048, NULL, 3, &hUSB);
-    #if (configNUMBER_OF_CORES > 1)
-        vTaskCoreAffinitySet(hUSB, 1u << 0);
-    #endif
-    */
-
-
-    // Create the tasks with xTaskCreate
-    BaseType_t result = xTaskCreate(sensor_task, // (en) Task function
-                "sensor",                        // (en) Name of the task 
-                DEFAULT_STACK_SIZE,              // (en) Size of the stack for this task (in words). Generally 1024 or 2048
-                NULL,                            // (en) Arguments of the task 
-                2,                               // (en) Priority of this task
-                &hSensorTask);                   // (en) A handle to control the execution of this task
-
-    if(result != pdPASS) {
-        printf("Sensor task creation failed\n");
-        return 0;
-    }
-    result = xTaskCreate(print_task,  // (en) Task function
-                "print",              // (en) Name of the task 
-                DEFAULT_STACK_SIZE,   // (en) Size of the stack for this task (in words). Generally 1024 or 2048
-                NULL,                 // (en) Arguments of the task 
-                2,                    // (en) Priority of this task
-                &hPrintTask);         // (en) A handle to control the execution of this task
-
-    if(result != pdPASS) {
-        printf("Print Task creation failed\n");
-        return 0;
+    // Create Morse event queue
+    g_morse_q = xQueueCreate(MORSE_Q_LEN, sizeof(morse_event_t));
+    if (g_morse_q == NULL) {
+        // Failed to create queue, stop here
+        while (1) {
+            sleep_ms(1000);
+        }
     }
 
-    // Start the scheduler (never returns)
+    // Create tasks
+    xTaskCreate(status_task,    "status",    1024, NULL, 1, NULL);
+    xTaskCreate(input_task,   "input",   2048, NULL, 2, NULL);
+    xTaskCreate(encoder_task, "encoder", 2048, NULL, 2, NULL);
+
+    // Start scheduler
     vTaskStartScheduler();
-    
-    // Never reach this line.
+
+    // Should never reach here
+    while (1) {
+    }
+
     return 0;
 }
-
