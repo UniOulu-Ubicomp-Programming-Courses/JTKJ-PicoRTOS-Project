@@ -6,9 +6,9 @@
  * Device: Raspberry Pi Pico W + JTKJ Hat
  *
  * Authors:
- *   Tatu Kari 
- *   Elias Peltokorpi
- *   Eemil Holma
+ *   Tatu Kari (3 points)
+ *   Elias Peltokorpi (2 points)
+ *   Eemil Holma (1 point)
  * 
  * Friend A: Input Task
  * - Implemented IMU tilt detection for dot/dash.
