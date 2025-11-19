@@ -6,10 +6,27 @@
  * Device: Raspberry Pi Pico W + JTKJ Hat
  *
  * Authors:
- *   Tatu Kari
+ *   Tatu Kari 
  *   Elias Peltokorpi
  *   Eemil Holma
- *
+ * 
+ * Friend A: Input Task
+ * - Implemented IMU tilt detection for dot/dash.
+ * - Coded button press logic.
+ * - Tested motion recognition.
+
+ * Eemil: Encoder Task
+ * - Implemented encoder logic converting events into Morse output.
+ * - Managed queue communication.
+ * - Formatted messages according to protocol.
+
+ * Tatu: Integration + Support
+ * - Built system setup (tasks, queues, init).
+ * - Wrote message buffer, reset logic, debug tools.
+ * - Helped with IMU thresholds and button logic.
+ * - Ensured the whole project compiles, runs, and follows Tier 1 rules.
+
+*
  * Description:
  *   This program reads motions from the IMU sensor and button presses
  *   from the JTKJ Hat and converts them into Morse code. The Morse
@@ -35,8 +52,6 @@
 #include "queue.h"
 
 #include "tkjhat/sdk.h"
-
-// Morse configuration
 
 #define TX_BUF_LEN             256
 #define MORSE_Q_LEN            32
@@ -78,21 +93,20 @@ static void status_task(void *arg) {
 
     while (1) {
         printf("status: running...\n");
-        vTaskDelay(pdMS_TO_TICKS(15000));
+        vTaskDelay(pdMS_TO_TICKS(30000));
     }
 }
 
 // input_task: IMU + BUTTON1 -> Morse events
 //
 //  - IMU:
-//      big movement -> measure duration
-//      short        -> DOT
-//      long         -> DASH
+//     X-axis tilt -> EV_DOT
+//     Y-axis tilt -> EV_DASH
 //
 //  - BUTTON1:
-//      short press   -> EV_GAP_LETTER
-//      medium press  -> EV_GAP_WORD
-//      long press    -> EV_END_MSG
+//      1st press   -> EV_GAP_LETTER
+//      2nd press  -> EV_GAP_WORD
+//      3rd press    -> EV_END_MSG
 
 static void input_task(void *arg)
 {
@@ -165,24 +179,24 @@ static void input_task(void *arg)
                     // If there's significant tilt along the X-axis, print a dot
                     morse_event_t ev = EV_DOT;
                     xQueueSend(g_morse_q, &ev, portMAX_DELAY);
-                    morse_message[morse_msg_index++] = '.';  // Add dot to message
+
                     x_tilted = true;  // Prevent printing the same event repeatedly
                     button_press_count = 1; // Reset button press count on dot
-                    printf("X-axis tilt -> DOT\n");  // Debug message
+
                 } else if (fabsf(ay) > MOVE_THRESHOLD && !y_tilted) {
                     // If there's significant tilt along the Y-axis, print a dash
                     morse_event_t ev = EV_DASH;
                     xQueueSend(g_morse_q, &ev, portMAX_DELAY);
-                    morse_message[morse_msg_index++] = '-';  // Add dash to message
+
                     y_tilted = true;  // Prevent printing the same event repeatedly
                     button_press_count = 1; // Reset button press count on dash
-                    printf("Y-axis tilt -> DASH\n");  // Debug message
+
                 }
             }
         }
 
-        // ---- 2) Read BUTTON1 and detect gaps/end of message ----
-        btn_now = (gpio_get(BUTTON1) == 0); // pressed if 0 (active-low)
+        // Read BUTTON1 and detect gaps/end of message
+        btn_now = (gpio_get(BUTTON1) == 0);  // active-low
 
         // Button pressed down
         if (btn_now && !btn_prev) {
@@ -192,28 +206,19 @@ static void input_task(void *arg)
         // Button released (now we process the press count)
         if (!btn_now && btn_prev) {
             if (button_press_count == 1) {
-                // Single press: add a space between characters
-                morse_message[morse_msg_index++] = ' ';
-                printf("Button pressed once: Added letter gap\n");
+                // Single press: send letter gap event
+                morse_event_t ev = EV_GAP_LETTER;
+                xQueueSend(g_morse_q, &ev, portMAX_DELAY);
+
             } else if (button_press_count == 2) {
-                // Double press: add two spaces (gap between words)
-                morse_message[morse_msg_index++] = ' ';
-                printf("Button pressed twice: Added word gap\n");
+                // Double press: send word gap event  
+                morse_event_t ev = EV_GAP_WORD;
+                xQueueSend(g_morse_q, &ev, portMAX_DELAY);
+
             } else if (button_press_count == 3) {
-                // Triple press: end the message
-                morse_message[morse_msg_index] = '\0'; // Null-terminate the message
-                printf("\nMessage: %s\n", morse_message);
-
-                // Add two spaces and line feed to indicate message end
-                strcat(morse_message, "  \n");
-
-                // Print final message with spaces and line feed
-                printf("\nFinal Message Sent: %s\n", morse_message);
-
-                // Reset the message after printing it
-                memset(morse_message, 0, sizeof(morse_message));
-                morse_msg_index = 0;  // Reset the message index
-                printf("Message has been reset.\n");
+                // Triple press: send end message event
+                morse_event_t ev = EV_END_MSG;
+                xQueueSend(g_morse_q, &ev, portMAX_DELAY);
 
                 // Reset press count for next sequence
                 button_press_count = 0;
@@ -226,11 +231,6 @@ static void input_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(SAMPLE_MS));
     }
 }
-
-
-
-
-
 
 
 
@@ -262,18 +262,21 @@ static void encoder_task(void *arg)
             case EV_DOT:
                 if (len + 1 < TX_BUF_LEN) {
                     out[len++] = '.';
+                    printf("X-axis tilt -> DOT\n");
                 }
                 break;
 
             case EV_DASH:
                 if (len + 1 < TX_BUF_LEN) {
                     out[len++] = '-';
+                    printf("Y-axis tilt -> DASH\n");
                 }
                 break;
 
             case EV_GAP_LETTER:
                 if (len && out[len - 1] != ' ' && len + 1 < TX_BUF_LEN) {
                     out[len++] = ' ';
+                    printf("Button pressed once: Added letter gap\n");
                 }
                 break;
 
@@ -283,6 +286,7 @@ static void encoder_task(void *arg)
                 }
                 if (len + 1 < TX_BUF_LEN) {
                     out[len++] = ' ';
+                    printf("Button pressed twice: Added word gap\n");
                 }
                 break;
 
@@ -296,9 +300,14 @@ static void encoder_task(void *arg)
                     out[len++] = '\n';
                 }
 
+                printf("\n=== MESSAGE COMPLETE ===\n");
+                printf("Message: %.*s", (int)len, out);
+                printf("Sending to Serial Client...\n");
+
                 // send to Serial Client
-                printf("%.*s", (int)len, out);
                 fflush(stdout);
+
+                printf("Message sent and reset.\n\n");
 
                 // reset buffer
                 len = 0;
@@ -308,6 +317,7 @@ static void encoder_task(void *arg)
         }
     }
 }
+
 
 // main: initializes everything and starts FreeRTOS scheduler
 
@@ -329,7 +339,7 @@ int main(void)
     }
 
     // Create tasks
-    xTaskCreate(status_task,    "status",    1024, NULL, 1, NULL);
+    xTaskCreate(status_task,  "status",  1024, NULL, 1, NULL);
     xTaskCreate(input_task,   "input",   2048, NULL, 2, NULL);
     xTaskCreate(encoder_task, "encoder", 2048, NULL, 2, NULL);
 
