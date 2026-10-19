@@ -85,13 +85,13 @@ add_subdirectory(libs/usb-serial-debug)
 # Add examples if necessary here
 # Uncomment the examples that you want to include in your project.
 #
-# add_subdirectory(examples/hello_blink)
+add_subdirectory(examples/hello_blink)
 # add_subdirectory(examples/hello_blink_freertos)
 # add_subdirectory(examples/hello_pico)
 # add_subdirectory(examples/hello_freertos)
-# add_subdirectory(examples/hello_dual_cdc)
+add_subdirectory(examples/hello_dual_cdc)
 # add_subdirectory(examples/hello_microphone)
-# add_subdirectory(examples/compilation_errors)
+add_subdirectory(examples/compilation_errors)
 add_subdirectory(examples/hello_hat)
 # add_subdirectory(examples/hat_example)
 add_subdirectory(examples/hat_imu_ex)

@@ -5,12 +5,15 @@
 
 #include "pico/stdlib.h"
 #include "pico/stdio.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 
 #define TEMP_MIN        0
 #define TEMP_MAX        40
 #define LUX_MIN         100
 #define LUX_MAX         1500
+#define BUFFER_SIZE 512
 
 static volatile int temp; 
 static volatile int lux;
@@ -83,7 +86,7 @@ static void printTask(void *arg) {
     while (1) {
         TickType_t ticks = xTaskGetTickCount();
         uint32_t ms = ticks * portTICK_PERIOD_MS;
-        sprintf(buf,"time:%d,temp:%d,lux:%d\n",(unsigned long)ms,temp,lux);
+        sprintf(buf,"temp:%d,lux:%d\n",temp,lux);
         stdio_puts(buf);
 
         vTaskDelay(pdMS_TO_TICKS(1500));
@@ -101,8 +104,10 @@ int main (void) {
     TaskHandle_t myPrintHandle = NULL;
 
     // Create tasks
-    xTaskCreate(printingTask, "print", 1024, NULL, 3, &myPrintHandle);
+    xTaskCreate(printTask, "print", 1024, NULL, 3, &myPrintHandle);
     xTaskCreate(sensorTask, "usb", 1024, NULL, 2, &mySensorHandle);
 
     vTaskStartScheduler();
+
+}
 
