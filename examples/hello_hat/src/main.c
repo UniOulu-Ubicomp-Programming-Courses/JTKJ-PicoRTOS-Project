@@ -57,8 +57,9 @@ static void buzzer_task(void *arg) {
 
 int main() {
     stdio_init_all();
-    // Uncomment this lines if you want to wait till the serial monitor is connected
-    // Specially for debugging
+    // Wait until the USB serial monitor is connected before continuing.
+    // This example intentionally pauses here until a serial connection is opened.
+    // You can comment the while, if you want the program to run without waiting for a serial connection (you might lose some debug output if you do this).
     while (!stdio_usb_connected()){
         sleep_ms(10);
     } 

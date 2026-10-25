@@ -78,14 +78,16 @@ void init_hat_sdk(){
  * ========================= */
 
  void init_sw1() {
-    // Initialize the button pin as an input with a pull-up resistor
+    // Initialize the button pin as an input.
+    // The board provides a hardware pull-down resistor.
     gpio_init(SW1_PIN);
     gpio_set_dir(SW1_PIN, GPIO_IN);
 
 }
 
  void init_sw2() {
-    // Initialize the button pin as an input with a pull-up resistor
+    // Initialize the button pin as an input.
+    // The board provides a hardware pull-down resistor.
     gpio_init(SW2_PIN);
     gpio_set_dir(SW2_PIN, GPIO_IN);
 }
@@ -278,8 +280,8 @@ bool i2c_read(uint8_t addr, uint8_t *dst, size_t len, bool nostop) {
 // Uses https://github.com/ArmDeveloperEcosystem/microphone-library-for-pico/tree/main
 // Uses pio to read pdm data and OpenPDM2PCM library to transform PDM to PCM
 // Microphone related functions
-// Sample rate: 16Khz
-// Buffer size: 256 samples.
+// Sample rate and buffer size are configured with
+// MEMS_SAMPLING_FREQUENCY and MEMS_BUFFER_SIZE.
  int init_pdm_microphone() {
     const struct pdm_microphone_config config = {
     // GPIO pin for the PDM DAT signal
@@ -326,12 +328,12 @@ int get_microphone_samples(int16_t* buffer, size_t samples) {
  *  DISPLAY SSD1306
  * ========================= */
 // Datasheet can be found at: https://cdn-shop.adafruit.com/datasheets/SSD1306.pdf
-// Library used can be found at: https://github.com/daschr/pico-ssd1306https://github.com/daschr/pico-ssd1306
+// Library used can be found at: https://github.com/daschr/pico-ssd1306
  static ssd1306_t disp;
 
 // Display-related functions
  void init_display() {
-    // Initialize the SSD1306 display with external VCC
+    // Initialize the SSD1306 display using its internal charge pump
     disp.external_vcc = false;
     ssd1306_init(&disp, 128, 64, SSD1306_I2C_ADDRESS, i2c_default);
 
@@ -520,12 +522,12 @@ void init_veml6030() {
 
     uint8_t config[3] = {
         VEML6030_CONFIG_REG,  // Configuration register
-        0x00,                 // High byte: Gain 1/8 (00), reserved bits
-        0x10                  // Low byte: 100ms integration time (010 in bits 6-8), power on (bit 0 = 0)
+        0x00,                 // Low byte
+        0x10                  // High byte: gain 1/8
     };
     
     // Write configuration to sensor
-    i2c_write_blocking(i2c_default, VEML6030_I2C_ADDR, config, sizeof(config), false);
+    i2c_write_blocking(i2c_default, VEML6030_I2C_ADDRESS, config, sizeof(config), false);
     sleep_ms(10);
 }
 
@@ -534,8 +536,8 @@ void init_veml6030() {
 // Note: sampling time should be > IT -> in this case it has been 100ms by defintion. 
 uint32_t veml6030_read_light() {
 
-    // Exercise 2: In order to get the luminance we need to read the value of the VEML6030_ALS_REG (see VEML6030 datasheet)
-    //            Use functions i2c_write_blocking and i2_read_blocking to collect luminance data.
+    // Exercise 2: In order to get the illuminance we need to read the value of the VEML6030_ALS_REG (see VEML6030 datasheet)
+    //            Use functions i2c_write_blocking and i2c_read_blocking to collect illuminance data.
     //            These functions are found in the Pico SDK:
     //            https://www.raspberrypi.com/documentation/pico-sdk/hardware.html#group_hardware_i2c
     //            The i2c that you must use is i2c_default.  
@@ -544,8 +546,8 @@ uint32_t veml6030_read_light() {
     //            using data of page 5 of VEML6030 design application document: https://www.vishay.com/docs/84367/designingveml6030.pdf
     //            Finally, store the value in the variable luxVal_uncorrected.
     //
-    // Tehtävä 2: Saadaksemme luminanssin meidän tulee lukea VEML6030_ALS_REG -rekisterin arvo (katso VEML6030-datalehti).
-    //            Käytä funktioita i2c_write_blocking ja i2_read_blocking luminanssidatan keräämiseen.
+    // Tehtävä 2: Saadaksemme valaistusvoimakkuuden meidän tulee lukea VEML6030_ALS_REG -rekisterin arvo (katso VEML6030-datalehti).
+    //            Käytä funktioita i2c_write_blocking ja i2c_read_blocking valaistusvoimakkuusdatan keräämiseen.
     //            Nämä funktiot löytyvät Pico SDK:sta:
     //            https://www.raspberrypi.com/documentation/pico-sdk/hardware.html#group_hardware_i2c
     //            Käytettävä i2c-väylä on i2c_default.
@@ -574,10 +576,10 @@ static uint16_t _veml6030_read_register(uint8_t reg) {
     uint8_t data[2] = {0,0};
 
     // Select ALS output register
-    i2c_write_blocking(i2c_default, VEML6030_I2C_ADDR, &reg, 1, true);
-    // Read two bytes (MSB first)
-    i2c_read_blocking(i2c_default, VEML6030_I2C_ADDR, data, sizeof(data), false);
-    //data [0] contains the LSB and data[1] the MSB
+    i2c_write_blocking(i2c_default, VEML6030_I2C_ADDRESS, &reg, 1, true);
+    // Read two bytes (LSB first)
+    i2c_read_blocking(i2c_default, VEML6030_I2C_ADDRESS, data, sizeof(data), false);
+    // data[0] contains the LSB and data[1] the MSB
     return ((uint16_t)data[0]) |((uint16_t) data[1]<<8);
 }
 
@@ -589,7 +591,7 @@ void veml6030_stop(){
     };
     
     // Write configuration to sensor
-    i2c_write_blocking(i2c_default, VEML6030_I2C_ADDR, config, sizeof(config), false);
+    i2c_write_blocking(i2c_default, VEML6030_I2C_ADDRESS, config, sizeof(config), false);
     sleep_ms(10);
 }
 
@@ -670,12 +672,12 @@ void hdc2021_set_low_humidity_threshold(float humid) {
     uint8_t humid_thresh = (uint8_t)(humid * 2.56f);
     write_register(HDC2021_HUMID_THR_L, humid_thresh);
 }
-// By default it sets following modes: 
-// Measurement methods: Temp + Measurement
+// By default it sets the following modes: 
+// Measurement mode: Humidity + Temperature
 // Sampling rate: 1 Hz
 // Temperature resolution: 14 bits
 // Humidity resolution: 14 bits
-// It triggers continous measurements. 
+// It triggers continuous measurements. 
  void init_hdc2021_() {
     hdc2021_reset();
     hdc2021_set_high_temp_threshold(50);

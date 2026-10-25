@@ -26,78 +26,75 @@ SOFTWARE.
 */
 
 #include <string.h>
-
 #include <FreeRTOS.h>
 #include <semphr.h>
-
 #include <tusb.h>
-
 #include "usbSerialDebug/helper.h"
 
 static SemaphoreHandle_t g_log_mtx;
 static const TickType_t wait = pdMS_TO_TICKS(5);
-static const TickType_t io_timeout = pdMS_TO_TICKS(10);
 
 static inline bool cdc0_ready(void) {
     return tud_mounted() && tud_cdc_n_connected(0);
 }
 
-static SemaphoreHandle_t g_log_mtx;
 bool usb_serial_init(void) {
     g_log_mtx = xSemaphoreCreateMutex();
     return g_log_mtx != NULL;
 }
 
-
 void usb_serial_flush(void) {
-    if (!cdc0_ready()) return;
+    if (!cdc0_ready() || g_log_mtx == NULL) return;
 
-    // Try to take the mutex for not interfering with current writing
-    if (g_log_mtx && xSemaphoreTake(g_log_mtx, 0) == pdTRUE) {
+    // Skip this flush if another logger call owns the mutex.
+    if (xSemaphoreTake(g_log_mtx, 0) == pdTRUE) {
         tud_cdc_n_write_flush(0);
         xSemaphoreGive(g_log_mtx);
-    } else {
-        // If we do not get instantly we ask for a flush. 
-        // TinyUSB handle it in a safe way (hopefully).
-        tud_cdc_n_write_flush(0);
     }
 }
 
-bool usb_serial_connected(void){
+bool usb_serial_connected(void) {
     return cdc0_ready();
 }
 
+// Application-task helper. Do not call from ISRs or TinyUSB callbacks.
 int usb_serial_print(const char *s) {
-    if (!s) {
-        return -1;
-    }
-    if ( !tud_mounted() || !tud_cdc_connected()) 
-        return 0;
-    
-    if (xSemaphoreTake(g_log_mtx, wait) != pdTRUE) 
-        return 0;
+    if (!s) return -1;
+    if (!cdc0_ready() || g_log_mtx == NULL) return 0;
+    if (xSemaphoreTake(g_log_mtx, wait) != pdTRUE) return 0;
 
-    size_t initial, n = strlen(s);
+    size_t n = strlen(s);
+    const size_t initial = n;
+    unsigned retries = 0;
 
-    TickType_t deadline = xTaskGetTickCount() + io_timeout;
+    while (n > 0) {
+        if (!cdc0_ready()) {
+            xSemaphoreGive(g_log_mtx);
+            return 0;
+        }
 
-    while (n) {
-        uint32_t avail = tud_cdc_write_available();
-        if (avail) {
-            uint32_t chunk = (n < avail) ? (uint32_t)n : avail;
-            tud_cdc_write(s, chunk);
-            tud_cdc_write_flush();
-            s += chunk; 
-            n -= chunk;
-        } 
-        else {
-            if (io_timeout == 0 || (int32_t)(xTaskGetTickCount() - deadline) >= 0) {
+        uint32_t available = tud_cdc_n_write_available(0);
+        uint32_t chunk = n < available ? (uint32_t)n : available;
+        uint32_t written = 0;
+
+        if (chunk > 0) {
+            written = tud_cdc_n_write(0, s, chunk);
+            s += written;
+            n -= written;
+        }
+        tud_cdc_n_write_flush(0);
+
+        if (n > 0 && written == 0) {
+            // Give the USB task time to send, but do not wait forever.
+            if (retries >= 10) {
                 xSemaphoreGive(g_log_mtx);
-                return false; // give up to avoid blocking too long
+                return 0;
             }
+            retries++;
             vTaskDelay(pdMS_TO_TICKS(1));
         }
     }
+
     xSemaphoreGive(g_log_mtx);
-    return initial-n;
+    return (int)(initial - n);
 }

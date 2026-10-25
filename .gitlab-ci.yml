@@ -3,13 +3,25 @@ stages:
 
 mirror_students_to_github:
   stage: mirror
+
   rules:
     - if: '$CI_COMMIT_BRANCH == "students"'
+
   variables:
-    GIT_STRATEGY: fetch
-    GIT_DEPTH: "0" 
+    GIT_STRATEGY: clone
+    GIT_DEPTH: "0"
+    GIT_TERMINAL_PROMPT: "0"
+
   script:
-    - git remote add github https://$GITHUB_USER:$GITHUB_TOKEN@github.com/$GITHUB_REPO.git
-    - git fetch --prune --tags  # make sure local view is complete
-    # push "students" branch in GitLab to "main" branch in GitHub
-    - git push --force-with-lease github HEAD:main
+    # Add GitHub as a second remote.
+    - git remote add github "https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git"
+
+    # Read the exact current GitHub main commit.
+    # This SHA will be used as the explicit force-with-lease condition.
+    - GITHUB_MAIN_SHA="$(git ls-remote github refs/heads/main | cut -f1)"
+    - echo "GitHub main currently points to ${GITHUB_MAIN_SHA:-<branch does not exist>}"
+    - echo "GitLab students commit is ${CI_COMMIT_SHA}"
+
+    # Mirror this exact GitLab students commit to GitHub main.
+    # The push is rejected if GitHub main changed after the ls-remote above.
+    - git push --force-with-lease=refs/heads/main:${GITHUB_MAIN_SHA} github "${CI_COMMIT_SHA}:refs/heads/main"

@@ -1,4 +1,5 @@
 #include <time.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -37,9 +38,11 @@ static int rand_in_range(int min, int max) {
 
 // ---- Task generating sensor data----
 static void sensorTask (void *arg){
+    (void)arg;
     char buf[BUFFER_SIZE]; 
 
-    while (!tud_mounted() || !tud_cdc_n_connected(1)){
+    // Wait for USB enumeration, not for either serial monitor to open.
+    while (!tud_mounted()){
             vTaskDelay(pdMS_TO_TICKS(50));
     }
 
@@ -103,33 +106,33 @@ int main (void) {
     //Initialize helper library to write in CDC0)
     usb_serial_init();
     vTaskStartScheduler();
+    return 0;
 
 }
 
-// callback when data is received on a CDC interface
-void tud_cdc_rx_cb(uint8_t itf){   
-    // allocate buffer for the data in the stack
-    uint8_t buf[CFG_TUD_CDC_RX_BUFSIZE+1];
+// Called by the USB task when a CDC interface receives data.
+void tud_cdc_rx_cb(uint8_t itf) {
+    // Reserve two extra bytes for the newline and string terminator.
+    char buf[CFG_TUD_CDC_RX_BUFSIZE + 2];
+    uint32_t count = tud_cdc_n_read(itf, buf, sizeof(buf) - 2);
+    buf[count] = '\n';
+    buf[count + 1] = '\0';
 
-    //printf("RX CDC %d\n", itf);
-
-    // read the available data 
-    // | IMPORTANT: also do this for CDC0 because otherwise
-    // | you won't be able to print anymore to CDC0
-    // | next time this function is called
-    uint32_t count = tud_cdc_n_read(itf, buf, sizeof(buf));
-
-    // check if the data was received on the second cdc interface
-    if (itf == 1) {
-        // process the received data
-        buf[count] = '\n'; 
-        buf[count+1] = 0;// null-terminate the string
-        // now echo data back to the console on CDC 0
-        usb_serial_print("\nReceived on CDC 1:");
-        usb_serial_print(buf);
-
-        // and echo back OK on CDC 1
-        tud_cdc_n_write(itf, (uint8_t const *) "OK\n", 3);
-        tud_cdc_n_write_flush(itf);
+    // Also read CDC0 so that its receive buffer does not fill up.
+    if (itf == 1 && count > 0) {
+        if (tud_cdc_n_connected(0)) {
+            // Nonblocking writes: do not use the waiting logger here.
+            // Meaning, do not use usb_serial_print() or usb_serial_flush() here.
+            const char *prefix = "\nReceived on CDC 1:";
+            tud_cdc_n_write(0, prefix, strlen(prefix));
+            // Include the appended newline, but not the null terminator.
+            tud_cdc_n_write(0, buf, count + 1);
+            tud_cdc_n_write_flush(0);
         }
+
+        if (tud_cdc_n_connected(1)) {
+            tud_cdc_n_write(1, "OK\n", 3);
+            tud_cdc_n_write_flush(1);
+        }
+    }
 }

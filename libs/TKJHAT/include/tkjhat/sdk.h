@@ -52,16 +52,18 @@ SOFTWARE.
  *   - VEML6030 ambient light sensor (I2C addr 0x10)
  *   - HDC2021 temperature & humidity sensor (I2C addr 0x40)
  *   - ICM-42670 IMU: 3-axis accelerometer + 3-axis gyroscope
- *     (I2C addr 0x68 or 0x69; autodetected)
+ *     (I2C addr 0x69)
  *   - PDM MEMS microphone (DATA GPIO 16, CLK GPIO 15) via PIO + OpenPDM2PCM
  *
  * - **I2C defaults**
  *   - SDA GPIO 12, SCL GPIO 13
  * 
  * 
- * The API aims to be minimal and easy to use in teaching settings. Most functions are
- * non-blocking and configure the required pins/peripherals for basic operation. For more
- * advanced control (e.g., custom I2C transfers), helper functions are also provided.
+ * The API aims to be minimal and easy to use in teaching settings. Functions provide
+ * simple access to the main sensors and actuators and configure the required
+ * pins/peripherals for basic operation. Some functions include delays or busy waits;
+ * check the documentation and implementation when using them in time-sensitive or
+ * RTOS code.
  *
  * ### Typical usage
  * 
@@ -130,7 +132,7 @@ SOFTWARE.
 /** @name VEML6030
  *  Light sensor address, and registers
  *  @{ */
-#define VEML6030_I2C_ADDR                       0x10   /**< I2C address of the VEML6030 sensor. */
+#define VEML6030_I2C_ADDRESS                    0x10   /**< I2C address of the VEML6030 sensor. */
 #define VEML6030_CONFIG_REG                     0x00   /**< Configuration register. */
 #define VEML6030_ALS_REG                        0x04   /**< Ambient Light Sensing (ALS) data register. */
 /** @} */
@@ -492,7 +494,9 @@ void init_button2(void);
  * | RGB - Blu | @ref RGB_LED_B               | 20 |
  *
  * After @ref init_rgb_led, colors are set with @ref rgb_led_write using
- * 8-bit channels (0 = full on, 255 = off). A simple gamma (square) is applied.
+ * 8-bit channel intensities (0 = off, 255 = full intensity). The common-anode
+ * LED requires the PWM values to be inverted internally. A simple gamma
+ * correction (square) is also applied.
  * @{
  */
 
@@ -569,9 +573,13 @@ void blink_red_led(int n);
 /**
  * @brief Initialize the RGB LED (GPIO 18:R, 19:G, 20:B).
  *
- * Configures the RGB LED pins as PWM outputs and enables their
- * PWM slices. With the default 16-bit TOP (65535) and clkdiv = 4,
- * the PWM frequency is: 480 Hz.
+ * Configures the RGB LED pins as PWM outputs and enables their PWM
+ * slices using a clock divider of 4.0.
+ *
+ * With the default 16-bit PWM wrap value (65535), the resulting
+ * PWM frequency depends on the system clock:
+ * - Raspberry Pi Pico (RP2040, 125 MHz): approximately 477 Hz.
+ * - Raspberry Pi Pico 2 (RP2350, 150 MHz): approximately 572 Hz.
  *
  * @note After initialization, you can set colors using ::rgb_led_write().
  *       Call ::stop_rgb_led() to release the pins.
@@ -582,13 +590,13 @@ void init_rgb_led(void);
  * @brief Set the RGB LED color.
  *
  * Writes PWM duty cycles to the RGB LED channels to produce the
- * requested color. The LED is wired as common-anode, so inputs are
- * inverted internally (0 = full on, 255 = off). A simple gamma
- * correction is applied by squaring the 8-bit values.
+ * requested color. The LED is wired as common-anode, so the PWM values
+ * are inverted internally. A simple gamma correction is applied by
+ * squaring the requested 8-bit channel intensities.
  *
- * @param r Red intensity   (0–255, 0 = full on, 255 = off)
- * @param g Green intensity (0–255, 0 = full on, 255 = off)
- * @param b Blue intensity  (0–255, 0 = full on, 255 = off)
+ * @param r Red intensity   (0–255, 0 = off, 255 = full intensity)
+ * @param g Green intensity (0–255, 0 = off, 255 = full intensity)
+ * @param b Blue intensity  (0–255, 0 = off, 255 = full intensity)
  */
 void rgb_led_write(uint8_t r, uint8_t g, uint8_t b);
 
@@ -625,12 +633,12 @@ void stop_rgb_led(void);
  * - Uses PIO for PDM capture and OpenPDM2PCM for conversion to PCM.
  *
  * Default microphone parameters:
- * | Setting | Value |
- * |----------|--------|
- * | Data pin | @ref PDM_DATA (GPIO 16) |
- * | Clock pin | @ref PDM_CLK (GPIO 15) |
- * | Sample rate | 16 kHz |
- * | Buffer size | 256 samples |
+ * | Setting | Value | Current macro |
+ * |----------|--------|--------|
+ * | Data pin | @ref PDM_DATA (GPIO 16) | GPIO 16 |
+ * | Clock pin | @ref PDM_CLK (GPIO 15) | GPIO 15 |
+ * | Sample rate | @ref MEMS_SAMPLING_FREQUENCY | 8KHz |
+ * | Buffer size | @ref MEMS_BUFFER_SIZE | 256 |
  *
  * @note Buzzer functions are blocking (CPU toggles pin for duration).
  * Microphone functions use interrupts and DMA to collect samples asynchronously.
@@ -699,10 +707,10 @@ void deinit_buzzer(void);
  * (https://github.com/ArmDeveloperEcosystem/microphone-library-for-pico/tree/main).
  *
  * Default parameters:
- * - Data pin: GPIO 16
- * - Clock pin: GPIO 15
- * - Sample rate: 16 kHz
- * - Buffer size: 256 samples
+ * - Data pin: @ref PDM_DATA -> GPIO 16
+ * - Clock pin: @ref PDM_CLK -> GPIO 15
+ * - Sample rate: @ref MEMS_SAMPLING_FREQUENCY -> 8000 Hz
+ * - Buffer size: @ref MEMS_BUFFER_SIZE -> 256 samples
  *
  * @return 0 on success, negative value on error.
  */
@@ -711,8 +719,8 @@ int init_pdm_microphone(void);
 /**
  * @brief Start microphone sampling.
  *
- * Begins continuous capture of PCM samples from the microphone
- * at 16 kHz with a buffer size of 256 samples.
+ * Begins continuous capture of PCM samples using the configured
+ * @ref MEMS_SAMPLING_FREQUENCY and @ref MEMS_BUFFER_SIZE values.
  *
  * @return 0 on success, negative value on error.
  */
@@ -980,7 +988,7 @@ void stop_display(void);
  *
  * @details
  * The VEML6030 is a high-sensitivity ambient light sensor connected
- * through the I2C bus at address @ref VEML6030_I2C_ADDR (0x10).
+ * through the I2C bus at address @ref VEML6030_I2C_ADDRESS (0x10).
  * It provides a 16-bit dynamic range and adjustable gain and
  * integration time for accurate lux readings.
  *
@@ -989,7 +997,7 @@ void stop_display(void);
  * |---------|-----------|------|-------------|
  * | SDA | @ref DEFAULT_I2C_SDA_PIN | 12 | I2C data |
  * | SCL | @ref DEFAULT_I2C_SCL_PIN | 13 | I2C clock |
- * | Address | @ref VEML6030_I2C_ADDR | 0x10 | Light sensor I2C address |
+ * | Address | @ref VEML6030_I2C_ADDRESS | 0x10 | Light sensor I2C address |
  * | Interrupt | @ref VEML6030_INTERRUPT | 9 | Optional interrupt output |
  *
  * @pre The I2C interface must be initialized (use @ref init_i2c_default() or @ref init_hat_sdk()).
@@ -1001,7 +1009,7 @@ void stop_display(void);
  */
 
 /**
- * @brief Initialize the VEML6030 light sensor (@ref VEML6030_I2C_ADDR — 0x10).
+ * @brief Initialize the VEML6030 light sensor (@ref VEML6030_I2C_ADDRESS — 0x10).
  *
  * Configures the sensor with default parameters:
  * - Gain: 1/8  
@@ -1031,9 +1039,9 @@ uint32_t veml6030_read_light(void);
 /**
  * @brief Power down the VEML6030.
  *
- * Places the sensor into a low-power OFF mode by setting the power bit.
+ * Places the sensor into a low-power OFF mode by setting the shutdown bit.
  *
- * @note Call @ref veml6030 again to power it back on and reconfigure.
+ * @note Call @ref init_veml6030() to power the sensor back on and reconfigure it.
  */
 void veml6030_stop(void);
 
@@ -1047,7 +1055,7 @@ void veml6030_stop(void);
  *
  * int main(void) {
  *     init_i2c_default();     // or init_hat_sdk()
- *     init_veml6030();        // Initialize VEML6030 (@ref VEML6030_I2C_ADDR — 0x10)
+ *     init_veml6030();        // Initialize VEML6030 (@ref VEML6030_I2C_ADDRESS — 0x10)
  *
  *     while (true) {
  *         uint32_t lux = veml6030_read_light();
