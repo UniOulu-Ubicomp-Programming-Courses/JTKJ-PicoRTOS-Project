@@ -557,13 +557,13 @@ uint32_t veml6030_read_light() {
     //            Lopuksi tallenna arvo muuttujaan luxVal_uncorrected.
     
     // write register, keep bus active
-    uint8_t reg = VEML6030_ALS_REG;
-    i2c_write_blocking(i2c_default, VEML6030_I2C_ADDRESS, &reg, 1, true);
+    uint8_t txBuffer = VEML6030_ALS_REG;
+    i2c_write_blocking(i2c_default, VEML6030_I2C_ADDRESS, &txBuffer, 1, true);
 
     // The lux value is the combinatio of 2 x 8-bit values
-    uint8_t buffer[2] = {0};
-    i2c_read_blocking(i2c_default, VEML6030_I2C_ADDRESS, buffer, sizeof(buffer), false);
-    uint16_t lux_val = buffer[0] | buffer[1] << 8;
+    uint8_t rxBuffer[2] = {0};
+    i2c_read_blocking(i2c_default, VEML6030_I2C_ADDRESS, rxBuffer, sizeof(rxBuffer), false);
+    uint16_t lux_val = rxBuffer[0] | rxBuffer[1] << 8;
     
     // Multiply lux_val with the multiplier from table for 100ms 1/8 gain
     lux_val = lux_val * 0.5376;
