@@ -47,7 +47,7 @@ static void sensor_task(void *arg){
         //             
         // Exercise 2: Modify with application code here. Comment following line.
         //             Read sensor data and print it out as string; 
-        tight_loop_contents(); 
+        // tight_loop_contents(); 
         uint32_t light_value = veml6030_read_light();
         printf("Light value: %i\n", light_value);
 
