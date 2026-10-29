@@ -78,10 +78,10 @@ static void print_task(void *arg){
     
     while(1){
         
-        // Tehtävä 3: Kun tila on oikea, tulosta sensoridata merkkijonossa debug-ikkunaan
+        // Tehtävä 3: Kun tila on oikea, tulosta sensoridata merkkijonossa serial-monitor-ikkunaan
         //            Muista tilamuutos
         //            Älä unohda kommentoida seuraavaa koodiriviä.
-        // Exercise 3: Print out sensor data as string to debug window if the state is correct
+        // Exercise 3: Print out sensor data as string to serial monitor if the state is correct
         //             Remember to modify state
         //             Do not forget to comment next line of code.
         tight_loop_contents();
