@@ -41,6 +41,7 @@ static void display_task(void *arg) {
 
 }
 
+/*
 static void buzzer_task(void *arg) {
     (void)arg;
 
@@ -53,6 +54,7 @@ static void buzzer_task(void *arg) {
         vTaskDelay(pdMS_TO_TICKS(6000));
     }
 }
+    */
 
 
 int main() {
@@ -80,7 +82,7 @@ int main() {
         printf("Led Task created failed\n");
         return 0;
     }
-
+/*
     result = xTaskCreate(buzzer_task,   // (en) Task function
             "buzzer",                   // (en) Name of the task 
                 1024,                   // (en) Size of the stack for this task (in words). Generally 1024 or 2048
@@ -92,6 +94,8 @@ int main() {
         printf("Buzzer Task created failed\n");
         return 0;
     }
+
+*/
     result = xTaskCreate(display_task,   // (en) Task function
             "display",                   // (en) Name of the task 
                 1024,                    // (en) Size of the stack for this task (in words). Generally 1024 or 2048

@@ -21,7 +21,7 @@
 
 // Tehtävä 3: Tilakoneen esittely Add missing states.
 // Exercise 3: Definition of the state machine. Add missing states.
-enum state { WAITING=1, DATA_READY};
+enum state { WAITING=1, DATA_READY=2};
 enum state programState = WAITING;
 
 // Tehtävä 3: Valoisuuden globaali muuttuja
@@ -92,12 +92,11 @@ static void print_task(void *arg){
         //             Remember to modify state
         //             Do not forget to comment next line of code.
         if (programState == (DATA_READY)) {
-        printf("%ld", ambientLight);
+        printf("%d", ambientLight);
         programState = WAITING;
         }
         //tight_loop_contents();
         
-
 
         
         // Exercise 4. Use the usb_serial_print() instead of printf or similar in the previous line.
@@ -121,10 +120,10 @@ static void print_task(void *arg){
 
         // Exercise 3. Just for sanity check. Please, comment this out
         // Tehtävä 3: Just for sanity check. Please, comment this out
-        printf("printTask\n");
+        //printf("printTask\n");
         
         // Do not remove this
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
 
@@ -169,7 +168,7 @@ int main() {
     init_sw1();
     init_red_led();
 
-    gpio_set_irq_enabled_with_callback(BUTTON1, GPIO_IRQ_EDGE_FALL, true, btn_fxn);
+    gpio_set_irq_enabled_with_callback(BUTTON1, GPIO_IRQ_EDGE_RISE, true, btn_fxn);
     // Tehtävä 1:  Alusta painike ja LEd ja rekisteröi vastaava keskeytys.
     //             Keskeytyskäsittelijä on määritelty yläpuolella nimellä btn_fxn
 
@@ -196,14 +195,14 @@ int main() {
                 "sensor",                        // (en) Name of the task 
                 DEFAULT_STACK_SIZE,              // (en) Size of the stack for this task (in words). Generally 1024 or 2048
                 NULL,                            // (en) Arguments of the task 
-                2,                               // (en) Priority of this task
+                1,                               // (en) Priority of this task
                 &hSensorTask);                   // (en) A handle to control the execution of this task
 
     if(result != pdPASS) {
         printf("Sensor task creation failed\n");
         return 0;
     }
-    result = xTaskCreate(print_task,  // (en) Task function
+    BaseType_t print = xTaskCreate(print_task,  // (en) Task function
                 "print",              // (en) Name of the task 
                 DEFAULT_STACK_SIZE,   // (en) Size of the stack for this task (in words). Generally 1024 or 2048
                 NULL,                 // (en) Arguments of the task 

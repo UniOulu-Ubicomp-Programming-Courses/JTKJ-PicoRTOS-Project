@@ -548,24 +548,14 @@ uint32_t veml6030_read_light() {
     txBuffer[0] = VEML6030_ALS_REG;
     uint32_t luxVal_uncorrected = 0; 
 
-     while(1) {
-        if(i2c_write_blocking(i2c_default, VEML6030_I2C_ADDR , txBuffer, 1, true) != PICO_ERROR_GENERIC) {
-            if(i2c_read_blocking(i2c_default, VEML6030_I2C_ADDR, rxBuffer, 2, false) != PICO_ERROR_GENERIC) {                
+     
+        i2c_write_blocking(i2c_default, VEML6030_I2C_ADDR , txBuffer, 1, true);
+        i2c_read_blocking(i2c_default, VEML6030_I2C_ADDR, rxBuffer, 2, false);               
                 // Changing the 2-byte data in rxBuffer
                 // into a ambient light value 
 
-                luxVal_uncorrected = ((uint16_t)rxBuffer[1] << 8) || (rxBuffer[0]);
-
-            }
-            else {
-                printf("I2C Bus fault\n");
-            }
-        }
-        else {
-            printf("I2C Bus fault\n");
-        }
-    }
-
+        luxVal_uncorrected = ((uint16_t)rxBuffer[1] << 8) || (rxBuffer[0]);
+        luxVal_uncorrected = luxVal_uncorrected * 0.5376;
 
     //
     // Tehtävä 2: Saadaksemme luminanssin meidän tulee lukea VEML6030_ALS_REG -rekisterin arvo (katso VEML6030-datalehti).
