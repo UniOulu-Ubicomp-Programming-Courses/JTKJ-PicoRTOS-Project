@@ -62,6 +62,8 @@ include(FreeRTOS_Kernel_import.cmake)
 # Include config only for FreeRTOS target. 
 target_include_directories(FreeRTOS-Kernel INTERFACE
 ${CMAKE_CURRENT_LIST_DIR}/config
+${CMAKE_CURRENT_LIST_DIR}/include
+
 )
 #=============
 
@@ -111,7 +113,8 @@ add_subdirectory(examples/hello_serial_bidirectional_client)
 # Add the source files to be compiled
 # If you add the headers in a different directory, you should use: target_include_directories
 add_executable(${MAIN_TARGET}
-    src/template.c
+    src/main.c
+    src/translatemorse.c
 )
 
 # Links. Add all libraries that application is using. It must at least use the pico_stdlib
