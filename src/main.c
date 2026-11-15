@@ -33,7 +33,7 @@ enum state
 
 enum state programState = IDLE;
 
-char debugBuffer[DEBUG_MSG_LENGTH];
+char debugBuffer[DEBUG_MSG_LENGTH]; //vain tarpeellinen jos halutaan formatointia usb_serial_printiin
 
 char rxBuffer[MAX_MSG_LENGTH];
 char txBuffer[MAX_MSG_LENGTH];
@@ -199,7 +199,7 @@ void ui_task(void *pvParameters)
                 // Päivitetään näyttö
                 clear_display();
                 write_text_xy(0, 0, get_state_string(current_state));
-                write_text_xy(0, 16, msg_buffer);
+                write_text_xy(0, 16, rxBuffer);
             }
             previous_state = current_state;
         }
@@ -421,13 +421,16 @@ void transmit_task(void *arg)
     while (1)
     {
         xSemaphoreTake(stateMutex, portMAX_DELAY);
-        if (programState == SENDING)
+        if (programState == SENDING && msgIndex != 0)
         {
+            txBuffer[msgIndex++] = ' '; 
+            txBuffer[msgIndex++] = ' ';
+            txBuffer[msgIndex++] = '\n'; // Lisää välit ja rivinvaihto viestin loppuun
             tud_cdc_n_write(CDC_ITF_DATA, txBuffer, sizeof(char) * msgIndex);
             tud_cdc_n_write_flush(CDC_ITF_DATA);
             // Resetoi viestin indeksi seuraavaa viestiä varten
-            // msgIndex = 0;
-            programState = IDLE;
+            msgIndex = 0;
+            programState = SUCCESS;
         }
         xSemaphoreGive(stateMutex);
         vTaskDelay(pdMS_TO_TICKS(50));
@@ -444,8 +447,8 @@ void tud_cdc_rx_cb(uint8_t itf)
     // Käsitellään vain CDC_ITF_DATA-liitännän kautta tuleva data.
     if (itf == CDC_ITF_DATA)
     {
-        // Käsittele data täällä (esim. tallenna puskuriin tai lähetä toiselle tehtävälle).
-
+        // Vahidetaan tilaksi PLAY_BACK, jotta ui_task voi käsitellä vastaanotetun datan.
+        programState = PLAY_BACK;
         // Vastataan kohteliaasti OK
         tud_cdc_n_write(itf, (uint8_t const *)"OK\n", 3);
         tud_cdc_n_write_flush(itf);
