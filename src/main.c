@@ -57,10 +57,6 @@ const Note kuittausmelodia[] = {
     {1568, 133}  // G6
 };
 
-// Nämä jonot varataan tulevaa lähetystä ja vastaanottoa varten.
-QueueHandle_t txQueue;
-QueueHandle_t rxQueue;
-
 // Suojaa programState-muuttujan samanaikaisen käytön FreeRTOS-tehtävissä.
 SemaphoreHandle_t stateMutex;
 
@@ -480,16 +476,6 @@ int main()
     {
         usb_serial_print((char const *)"Failed to create mutex\n\0");
         usb_serial_flush();
-        return 0;
-    }
-
-    // Varataan jonot tulevia viestinvälitystehtäviä varten.
-    txQueue = xQueueCreate(64, sizeof(char));
-    rxQueue = xQueueCreate(64, sizeof(char));
-
-    if (txQueue == NULL || rxQueue == NULL)
-    {
-        printf("Failed to create queues\n");
         return 0;
     }
 
