@@ -465,8 +465,6 @@ int main()
     init_hat_sdk();
     sleep_ms(300);
 
-    TaskHandle_t handleSensorTask = NULL;
-
     // Alustaa painikkeen ja määrittää sen keskeytyskäsittelijän.
     gpio_init(BUTTON1);
     gpio_set_irq_enabled_with_callback(BUTTON1, GPIO_IRQ_EDGE_RISE, true, button_callback);
@@ -495,16 +493,27 @@ int main()
         return 0;
     }
 
-    // Sensoritehtävä lukee IMU:ta ja tunnistaa liikkeet. Prioriteetti 2
-    // määrittää tehtävän ajamisen suhteessa muihin FreeRTOS-tehtäviin.
+    BaseType_t uiTaskResult = xTaskCreate(
+        ui_task,
+        "ui",
+        DEFAULT_STACK_SIZE,
+        NULL,
+        1,
+        NULL);
+    if (uiTaskResult != pdPASS)
+    {
+        usb_serial_print((char const *)"UI task creation failed\n\0");
+        usb_serial_flush();
+        return 0;
+    }
+
     BaseType_t sensorTaskResult = xTaskCreate(
         sensor_task,
         "sensor",
         DEFAULT_STACK_SIZE,
         NULL,
         2,
-        &handleSensorTask);
-
+        NULL);
     if (sensorTaskResult != pdPASS)
     {
         usb_serial_print((char const *)"Sensor task creation failed\n\0");
