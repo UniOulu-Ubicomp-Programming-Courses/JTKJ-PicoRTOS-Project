@@ -17,12 +17,28 @@
 enum state { IDLE=1 };
 enum state programState = IDLE;
 
-static void example_task(void *arg){
-    (void)arg;
+struct SensorData{
+    float ax;
+    float ay;
+    float az;
+    float gx;
+    float gy;
+    float gz;
+    float t;
+};
+
+static void sensor_task(void *arg){
+    struct SensorData data;
+
+    int init_ICM42670(void){};
+    int start_sensor_with_default_values(void){};
 
     for(;;){
-        tight_loop_contents(); // Modify with application code here.
-        vTaskDelay(pdMS_TO_TICKS(2000));
+        while (ProgramState == IDLE);
+        int ICM42670_read_sensor_data(&data.ax, &data.ay, &data.az, &data.gx, &data.gy, &data.gz, &data.t)
+        printf("t: %.2f,     a: %.2f, %.2f, %.2f,    g: %.2f, %.2f, %.2f\n", data.t, data.ax,
+        data.ay, data,az, data.gx, data.gy, data.gz);
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
