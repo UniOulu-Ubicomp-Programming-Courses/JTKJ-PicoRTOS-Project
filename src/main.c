@@ -33,7 +33,7 @@ enum state
 
 enum state programState = IDLE;
 
-char debugBuffer[DEBUG_MSG_LENGTH]; //vain tarpeellinen jos halutaan formatointia usb_serial_printiin
+char debugBuffer[DEBUG_MSG_LENGTH]; // vain tarpeellinen jos halutaan formatointia usb_serial_printiin
 
 char rxBuffer[MAX_MSG_LENGTH];
 char txBuffer[MAX_MSG_LENGTH];
@@ -63,28 +63,6 @@ QueueHandle_t rxQueue;
 
 // Suojaa programState-muuttujan samanaikaisen käytön FreeRTOS-tehtävissä.
 SemaphoreHandle_t stateMutex;
-
-void test_sending_char_to_queue_task(void *pvParameters)
-{
-    (void)pvParameters;
-
-    const char test_message[] = ".- \n";
-
-    for (size_t i = 0; i < sizeof(test_message) - 1; i++)
-    {
-        char character = test_message[i];
-
-        if (xQueueSend(rxQueue, &character, portMAX_DELAY) != pdPASS)
-        {
-            usb_serial_print((char const *)"Failed to send character to rxQueue\n\0");
-            usb_serial_flush();
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-
-    vTaskDelete(NULL);
-}
 
 // Funktio, jolla saadaan tämänhetkinen tila merkkijonona.
 const char *get_state_string(enum state s)
@@ -210,6 +188,10 @@ static void sensor_task(void *arg)
 {
     (void)arg;
 
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+    enum state current_state = programState;
+    xSemaphoreGive(stateMutex);
+
     // Alustetaan IMU ja otetaan kiihtyvyysanturi sekä gyroskooppi käyttöön.
     if (init_ICM42670() != 0)
     {
@@ -227,6 +209,8 @@ static void sensor_task(void *arg)
         return;
     }
 
+    bool is_moving = false;
+
     // Edellisiä ja suodatettuja kiihtyvyysarvoja käytetään liikkeen havaitsemiseen.
     float previous_ax, previous_ay;
     float filtered_ax, filtered_ay;
@@ -241,7 +225,7 @@ static void sensor_task(void *arg)
     // ja riittävän voimakas Y-akselin pyöräytys välilyönnin.
     char detection_symbol;
 
-    // Liikkeen on oltava rauhallinen usean näytteen ajan ennen merkin lähettämistä.
+    // Liikkeen on oltava rauhallinen usean näytteen ajan ennen merkin hyväksymistä.
     uint8_t debounce_counter = 0;
     uint8_t rotation_counter = 0;
 
@@ -266,8 +250,10 @@ static void sensor_task(void *arg)
     {
         // Suojataan tilan luku ja muutos muilta tehtäviltä.
         xSemaphoreTake(stateMutex, portMAX_DELAY);
+        current_state = programState;
+        xSemaphoreGive(stateMutex);
 
-        if (programState == IDLE)
+        if (current_state == IDLE && !is_moving)
         {
             float current_ax, current_ay;
             float current_gy;
@@ -276,7 +262,6 @@ static void sensor_task(void *arg)
             {
                 usb_serial_print((char const *)"Failed to read ICM42670 data\n\0");
                 usb_serial_flush();
-                xSemaphoreGive(stateMutex);
                 vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(50));
                 continue;
             }
@@ -297,8 +282,8 @@ static void sensor_task(void *arg)
 
                 if (rotation_counter >= 3)
                 {
-                    programState = SENDING;
                     detection_symbol = ' ';
+                    is_moving = true;
 
                     snprintf(debugBuffer, DEBUG_MSG_LENGTH, "Movement detected: '%c'\n", detection_symbol);
                     usb_serial_print(debugBuffer);
@@ -309,24 +294,26 @@ static void sensor_task(void *arg)
             }
             else if (delta_ay > accelerometer_threshold && delta_ay > delta_ax)
             {
-                programState = SENDING;
                 detection_symbol = '.';
+                is_moving = true;
 
                 snprintf(debugBuffer, DEBUG_MSG_LENGTH, "Movement detected: '%c'\n", detection_symbol);
                 usb_serial_print(debugBuffer);
                 usb_serial_flush();
 
+                rotation_counter = 0;
                 debounce_counter = 0;
             }
             else if (delta_ax > accelerometer_threshold)
             {
-                programState = SENDING;
                 detection_symbol = '-';
+                is_moving = true;
 
                 snprintf(debugBuffer, DEBUG_MSG_LENGTH, "Movement detected: '%c'\n", detection_symbol);
                 usb_serial_print(debugBuffer);
                 usb_serial_flush();
 
+                rotation_counter = 0;
                 debounce_counter = 0;
             }
             else
@@ -339,7 +326,7 @@ static void sensor_task(void *arg)
             previous_ay = filtered_ay;
             previous_gy = filtered_gy;
         }
-        else if (programState == SENDING)
+        else if (is_moving)
         {
             float current_ax, current_ay;
             float current_gy;
@@ -348,7 +335,9 @@ static void sensor_task(void *arg)
             {
                 usb_serial_print((char const *)"Failed to read ICM42670 data\n\0");
                 usb_serial_flush();
-                xSemaphoreGive(stateMutex);
+
+                is_moving = false;
+
                 vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(50));
                 continue;
             }
@@ -368,28 +357,42 @@ static void sensor_task(void *arg)
                 debounce_counter++;
                 if (debounce_counter >= 5)
                 {
-                    if (xQueueSend(txQueue, &detection_symbol, 0) == pdPASS)
+                    // Lähetetään merkki, kun laite on ollut rauhallinen tarpeeksi kauan.
+                    xSemaphoreTake(stateMutex, portMAX_DELAY);
+                    if (msgIndex < MAX_MSG_LENGTH - 4)
                     {
-                        programState = IDLE;
-                        debounce_counter = 0;
+                        txBuffer[msgIndex++] = detection_symbol;
+                        is_moving = false;
+                        if (msgIndex >= MAX_MSG_LENGTH - 4)
+                        {
+                            programState = SENDING; // Vaihdetaan tilaksi SENDING, jotta viesti lähetetään
+                            xSemaphoreGive(stateMutex);
+                            usb_serial_print((char const *)"Transmit buffer full\n\0");
+                            usb_serial_flush();
+                        }
+                        else
+                        {
+                            xSemaphoreGive(stateMutex);
+                        }
                     }
                     else
                     {
-                        usb_serial_print((char const *)"Failed to send symbol to txQueue\n\0");
-                        usb_serial_flush();
+                        xSemaphoreGive(stateMutex);
                     }
+
+                    rotation_counter = 0;
+                    debounce_counter = 0;
                 }
             }
             else
             {
+                rotation_counter = 0;
                 debounce_counter = 0;
             }
             previous_ax = filtered_ax;
             previous_ay = filtered_ay;
             previous_gy = filtered_gy;
         }
-
-        xSemaphoreGive(stateMutex);
 
         // Odotetaan seuraavaan näytteenottohetkeen.
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(50));
@@ -423,7 +426,7 @@ void transmit_task(void *arg)
         xSemaphoreTake(stateMutex, portMAX_DELAY);
         if (programState == SENDING && msgIndex != 0)
         {
-            txBuffer[msgIndex++] = ' '; 
+            txBuffer[msgIndex++] = ' ';
             txBuffer[msgIndex++] = ' ';
             txBuffer[msgIndex++] = '\n'; // Lisää välit ja rivinvaihto viestin loppuun
             tud_cdc_n_write(CDC_ITF_DATA, txBuffer, sizeof(char) * msgIndex);
