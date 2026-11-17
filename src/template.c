@@ -29,19 +29,16 @@ struct SensorData{
 
 static void sensor_task(void *arg){
     struct SensorData data;
-
-    int init_ICM42670(void){};
-    int start_sensor_with_default_values(void){};
+    init_ICM42670();
+    ICM42670_start_with_default_values();
 
     for(;;){
-        while (ProgramState == IDLE);
-        int ICM42670_read_sensor_data(&data.ax, &data.ay, &data.az, &data.gx, &data.gy, &data.gz, &data.t)
-        printf("t: %.2f,     a: %.2f, %.2f, %.2f,    g: %.2f, %.2f, %.2f\n", data.t, data.ax,
-        data.ay, data,az, data.gx, data.gy, data.gz);
-        vTaskDelay(pdMS_TO_TICKS(100));
+        while (programState == IDLE);
+        ICM42670_read_sensor_data(&data.ax, &data.ay, &data.az, &data.gx, &data.gy, &data.gz, &data.t);
+        printf("t: %.2f, a: %.2f, %.2f, %.2f,  g: %.2f, %.2f, %.2f\n", data.t, data.ax, data.ay, data.az, data.gx, data.gy, data.gz);
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
-
 int main() {
     stdio_init_all();
     // Uncomment this lines if you want to wait till the serial monitor is connected
@@ -53,8 +50,8 @@ int main() {
 
     TaskHandle_t myExampleTask = NULL;
     // Create the tasks with xTaskCreate
-    BaseType_t result = xTaskCreate(example_task,       // (en) Task function
-                "example",              // (en) Name of the task 
+    BaseType_t result = xTaskCreate(sensor_task,       // (en) Task function
+                "sensor",              // (en) Name of the task 
                 DEFAULT_STACK_SIZE, // (en) Size of the stack for this task (in words). Generally 1024 or 2048
                 NULL,               // (en) Arguments of the task 
                 2,                  // (en) Priority of this task

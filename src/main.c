@@ -43,7 +43,7 @@ static void sensor_task(void *arg){
    
     for(;;){
 
-        if (state == waiting) {
+        if (programState == WAITING) {
         ambientLight = veml6030_read_light();
         programState = DATA_READY;
         }
@@ -85,7 +85,7 @@ static void print_task(void *arg){
     (void)arg;
     
     while(1){
-        if (state == DATA_READY) {
+        if (programState == DATA_READY) {
             printf("%d", ambientLight);
             programState = WAITING;
         }
