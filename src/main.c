@@ -444,17 +444,25 @@ void transmit_task(void *arg)
 /// @param itf
 void tud_cdc_rx_cb(uint8_t itf)
 {
+    char tempBuffer[4];
+    static uint8_t rxIndex = 0;
     // Vastaan otetaan itf:stä riippumatta, jotta bufferit tyhjenee.
-    uint32_t count = tud_cdc_n_read(itf, rxBuffer, sizeof(rxBuffer));
-
+    uint32_t count = tud_cdc_n_read(itf, tempBuffer, sizeof(tempBuffer));
+    
     // Käsitellään vain CDC_ITF_DATA-liitännän kautta tuleva data.
     if (itf == CDC_ITF_DATA)
     {
-        // Vahidetaan tilaksi PLAY_BACK, jotta ui_task voi käsitellä vastaanotetun datan.
-        programState = PLAY_BACK;
-        // Vastataan kohteliaasti OK
-        tud_cdc_n_write(itf, (uint8_t const *)"OK\n", 3);
-        tud_cdc_n_write_flush(itf);
+        if (rxIndex < MAX_MSG_LENGTH - 1 && count != 3) //vain lopetus viesti 3 pitkä
+        {
+            rxBuffer[rxIndex++] = tempBuffer[0];
+        }
+        else 
+        {
+            rxBuffer[rxIndex] = '\0'; // Lopetetaan merkkijono
+            rxIndex = 0; // Resetoi indeksi seuraavaa viestiä varten
+            // Vahidetaan tilaksi PLAY_BACK, jotta ui_task voi käsitellä vastaanotetun datan.
+            programState = PLAY_BACK;
+        }
     }
 }
 
@@ -472,7 +480,7 @@ int main()
     tusb_init();
     usb_serial_init();
 
-    // Mutex estää samanaikaiset ristiriitaiset programState-muutokset.
+    // Mutex estää samanaikaiset ristiriitaiset programState ja I2C -muutokset.
     stateMutex = xSemaphoreCreateMutex();
     if (stateMutex == NULL)
     {
@@ -489,6 +497,7 @@ int main()
         return 0;
     }
 
+    // Luodaan RTOS tehtävät ja tarkistetaan että ne onnistui
     BaseType_t uiTaskResult = xTaskCreate(
         ui_task,
         "ui",
