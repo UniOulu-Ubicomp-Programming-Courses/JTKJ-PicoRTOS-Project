@@ -15,8 +15,10 @@
 #define BUFFER_SIZE 50
 
 //Add here necessary states
-enum state { IDLE=1, SENDING, LIGHT};
+enum state { IDLE=1, SENDING};
 enum state programState = IDLE;
+enum sensormode { IMU=1, LIGHT};
+enum sensormode SensorMode = IMU;
 
 //Global datastructure to hold accelerometer data
 struct SensorData{
@@ -44,7 +46,7 @@ static void IMU_Task(void *arg)
 
     for (;;)
     {
-        if (programState == IDLE)
+        if (programState == IDLE && SensorMode == IMU)
         {
             //gets data from sensor and reads it into "data"
             ICM42670_read_sensor_data(&data.ax, &data.ay, &data.az, &data.gx, &data.gy, &data.gz, &data.t);
@@ -55,14 +57,14 @@ static void IMU_Task(void *arg)
 }
 
 
-uint32_t lightdata = 0;
+uint32_t lightdata = 0; //global variable for light data in lux
 
 static void light_task(void *arg)
 {
     init_veml6030(); //initializes the light sensor
     for (;;)
     {
-        if (programState == LIGHT)
+        if (programState == IDLE && SensorMode == LIGHT)
         {
             //gets sensor data and reads it into LightData
             lightdata = veml6030_read_light();
