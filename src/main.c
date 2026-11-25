@@ -15,10 +15,10 @@
 #define BUFFER_SIZE 50
 
 //Add here necessary states
-enum state { IDLE=1, SENDING};
+enum state { IDLE=1, SENDING, LIGHT};
 enum state programState = IDLE;
 
-//Global datastructure to hold accelerometer data
+//Global datastructure to hold accelerometer and light data
 struct SensorData{
     float ax;
     float ay;
@@ -36,7 +36,7 @@ static void button_handler(uint gpio, uint32_t eventMask){
 
 }
 
-static void sensor_task(void *arg)
+static void IMU_Task(void *arg)
 {
     // initializes acclerometer
     init_ICM42670();
@@ -53,6 +53,24 @@ static void sensor_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
+
+struct LightData{
+    uint32_t lux;
+} lightdata;
+
+static void light_task(void *arg){
+    init_veml6030(); // initializes light sensor
+
+    for(;;){ 
+        if (programState == LIGHT)
+        {
+            // gets data from light sensor and saves it into LightData
+            lightdata.lux = veml6030_read_light();
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+
 
 // task for reading data and contructing/sending morse message based off of it
 static void morse_task(void *arg){
@@ -104,20 +122,34 @@ int main()
     init_hat_sdk();
     sleep_ms(300); //Wait some time so initialization of USB and hat is done.
 
-    TaskHandle_t sensorTask = NULL;
+    TaskHandle_t IMU_Task = NULL;
     TaskHandle_t morseTask = NULL;
+    TaskHandle_t light_task = NULL;
     // Create the tasks with xTaskCreate
-    BaseType_t result = xTaskCreate(sensor_task,       // (en) Task function
-                "sensor",              // (en) Name of the task 
+    BaseType_t result = xTaskCreate(IMU_Task,       // (en) Task function
+                "IMU",              // (en) Name of the task 
                 DEFAULT_STACK_SIZE, // (en) Size of the stack for this task (in words). Generally 1024 or 2048
                 NULL,               // (en) Arguments of the task 
                 2,                  // (en) Priority of this task
-                &sensorTask);    // (en) A handle to control the execution of this task
+                &IMU_Task);    // (en) A handle to control the execution of this task
 
     if(result != pdPASS) {
-        printf("sensortask creation failed\n");
+        printf("IMU task creation failed\n");
         return 0;
     }
+
+    result = xTaskCreate(light_task,       // (en) Task function
+                "light",              // (en) Name of the task 
+                DEFAULT_STACK_SIZE, // (en) Size of the stack for this task (in words). Generally 1024 or 2048
+                NULL,               // (en) Arguments of the task 
+                2,                  // (en) Priority of this task
+                &light_task);    // (en) A handle to control the execution of this task
+
+    if(result != pdPASS) {
+        printf("light_task creation failed\n");
+        return 0;
+    }
+
     result = xTaskCreate(morse_task,       // (en) Task function
                 "morse",              // (en) Name of the task 
                 DEFAULT_STACK_SIZE, // (en) Size of the stack for this task (in words). Generally 1024 or 2048
