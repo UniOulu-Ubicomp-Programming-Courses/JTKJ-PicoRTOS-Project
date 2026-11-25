@@ -55,9 +55,7 @@ static void IMU_Task(void *arg)
 }
 
 
-struct LightData {
-    uint32_t lux;
-} lightdata;
+uint32_t lightdata = 0;
 
 static void light_task(void *arg)
 {
@@ -67,7 +65,7 @@ static void light_task(void *arg)
         if (programState == LIGHT)
         {
             //gets sensor data and reads it into LightData
-            lightdata.lux = veml6030_read_light();
+            lightdata = veml6030_read_light();
         }
     vTaskDelay(pdMS_TO_TICKS(50));
     }
