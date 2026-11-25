@@ -18,6 +18,7 @@
 enum state { IDLE=1, SENDING};
 enum state programState = IDLE;
 
+//Global datastructure to hold accelerometer data
 struct SensorData{
     float ax;
     float ay;
@@ -28,14 +29,16 @@ struct SensorData{
     float t;
 } data;
 
+//interrupt handler function
 static void button_handler(uint gpio, uint32_t eventMask){
-    if (gpio == BUTTON2 && eventMask == GPIO_IRQ_EDGE_FALL)
+    if (gpio == BUTTON1 && eventMask == GPIO_IRQ_EDGE_FALL) //if interrupt came from button 1 and the event is press then change state
         programState = SENDING;
 
 }
 
 static void sensor_task(void *arg)
 {
+    // initializes acclerometer
     init_ICM42670();
     ICM42670_start_with_default_values();
 
@@ -43,7 +46,7 @@ static void sensor_task(void *arg)
     {
         if (programState == IDLE)
         {
-            rgb_led_write(0,100,0);
+            //gets data from sensor and reads it into "data"
             ICM42670_read_sensor_data(&data.ax, &data.ay, &data.az, &data.gx, &data.gy, &data.gz, &data.t);
             // printf("t: %.2f, a: %.2f, %.2f, %.2f,  g: %.2f, %.2f, %.2f\n", data.t, data.ax, data.ay, data.az, data.gx, data.gy, data.gz);
         }
@@ -51,37 +54,48 @@ static void sensor_task(void *arg)
     }
 }
 
+// task for reading data and contructing/sending morse message based off of it
 static void morse_task(void *arg){
-    const float MARGIN_OF_ERROR = 0.3;
-    char buffer[BUFFER_SIZE] = "";
+    const float MARGIN_OF_ERROR = 0.8; //cant always hold the device at perfect angle, 80% there should be enough
+    char buffer[BUFFER_SIZE] = ""; //initialize buffer so it wont contain garbage
+    init_red_led();
 
     for (;;)
     {
         if (programState == SENDING)
         {
-            rgb_led_write(0, 0, 100);
-            if (data.az > 1 - MARGIN_OF_ERROR)
+            // based on data; append a symbol at the end of the buffer
+            if (data.ay < -1 * MARGIN_OF_ERROR)
             {
-                sprintf(buffer, strcat(buffer, " "));
-                if (strlen(buffer) >= 2 && buffer[strlen(buffer) - 2] == ' ')
-                {
-                    sprintf(buffer, strcat(buffer, "\n"));
-                    fwrite(buffer, 1, strlen(buffer), stdout);
-                    stdio_flush();
-                    sprintf(buffer, "");
-                }
+                blink_red_led(1);
+                sprintf(buffer, strcat(buffer, "  \n"));
+                fwrite(buffer, 1, strlen(buffer), stdout); //write the data and flush it just in case
+                stdio_flush();
+                sprintf(buffer, ""); //reset buffer back to empty
             }
-            else if (data.ax > 1 - MARGIN_OF_ERROR)
+            else if (data.az >= 1 * MARGIN_OF_ERROR)
+            {
+                blink_red_led(1);
+                sprintf(buffer, strcat(buffer, " "));
+            }
+            else if (data.ax >= 1 * MARGIN_OF_ERROR)
+            {
+                blink_red_led(1);
                 sprintf(buffer, strcat(buffer, "-"));
-            else if (data.ax < 1 - MARGIN_OF_ERROR)
+            }
+            else if (data.ax <= -1 * MARGIN_OF_ERROR)
+            {
+                blink_red_led(1);
                 sprintf(buffer, strcat(buffer, "."));
+            }
             programState = IDLE;
         }
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(300)); //slightly longer delay to avoid double press
     }
 }
 
-int main() {
+int main()
+{
     stdio_init_all();
     // Uncomment this lines if you want to wait till the serial monitor is connected
     while (!stdio_usb_connected()){
@@ -115,9 +129,10 @@ int main() {
         printf("morsetask creation failed\n");
         return 0;
     }
-    gpio_set_irq_enabled_with_callback(BUTTON2, GPIO_IRQ_EDGE_FALL, true, button_handler);
 
-    init_rgb_led();
+    // setting a new interrupt for button 1, event click
+    gpio_set_irq_enabled_with_callback(BUTTON1, GPIO_IRQ_EDGE_FALL, true, button_handler);
+
 
     // Start the scheduler (never returns)
     vTaskStartScheduler();
@@ -125,4 +140,3 @@ int main() {
     // Never reach this line.
     return 0;
 }
-
