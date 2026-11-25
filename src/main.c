@@ -121,16 +121,16 @@ int main()
     init_hat_sdk();
     sleep_ms(300); //Wait some time so initialization of USB and hat is done.
 
-    TaskHandle_t IMU_Task = NULL;
+    TaskHandle_t IMUtask = NULL;
     TaskHandle_t morseTask = NULL;
-    TaskHandle_t light_task = NULL;
+    TaskHandle_t lighttask = NULL;
     // Create the tasks with xTaskCreate
     BaseType_t result = xTaskCreate(IMU_Task,       // (en) Task function
                 "IMU",              // (en) Name of the task 
                 DEFAULT_STACK_SIZE, // (en) Size of the stack for this task (in words). Generally 1024 or 2048
                 NULL,               // (en) Arguments of the task 
                 2,                  // (en) Priority of this task
-                &IMU_Task);    // (en) A handle to control the execution of this task
+                &IMUtask);    // (en) A handle to control the execution of this task
 
     if(result != pdPASS) {
         printf("light_task creation failed\n");
@@ -143,7 +143,7 @@ int main()
                 DEFAULT_STACK_SIZE, // (en) Size of the stack for this task (in words). Generally 1024 or 2048
                 NULL,               // (en) Arguments of the task 
                 2,                  // (en) Priority of this task
-                &light_task);    // (en) A handle to control the execution of this task
+                &lighttask);    // (en) A handle to control the execution of this task
 
     if(result != pdPASS) {
         printf("light_task creation failed\n");
