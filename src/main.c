@@ -18,7 +18,7 @@
 enum state { IDLE=1, SENDING, LIGHT};
 enum state programState = IDLE;
 
-//Global datastructure to hold accelerometer and light data
+//Global datastructure to hold accelerometer data
 struct SensorData{
     float ax;
     float ay;
@@ -54,23 +54,24 @@ static void IMU_Task(void *arg)
     }
 }
 
-struct LightData{
+
+struct LightData {
     uint32_t lux;
 } lightdata;
 
-static void light_task(void *arg){
-    init_veml6030(); // initializes light sensor
-
-    for(;;){ 
+static void light_task(void *arg)
+{
+    init_veml6030(); //initializes the light sensor
+    for (;;)
+    {
         if (programState == LIGHT)
         {
-            // gets data from light sensor and saves it into LightData
+            //gets sensor data and reads it into LightData
             lightdata.lux = veml6030_read_light();
         }
-        vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
-
 
 // task for reading data and contructing/sending morse message based off of it
 static void morse_task(void *arg){
@@ -134,10 +135,11 @@ int main()
                 &IMU_Task);    // (en) A handle to control the execution of this task
 
     if(result != pdPASS) {
-        printf("IMU task creation failed\n");
+        printf("light_task creation failed\n");
         return 0;
     }
 
+    
     result = xTaskCreate(light_task,       // (en) Task function
                 "light",              // (en) Name of the task 
                 DEFAULT_STACK_SIZE, // (en) Size of the stack for this task (in words). Generally 1024 or 2048
@@ -149,6 +151,7 @@ int main()
         printf("light_task creation failed\n");
         return 0;
     }
+
 
     result = xTaskCreate(morse_task,       // (en) Task function
                 "morse",              // (en) Name of the task 
