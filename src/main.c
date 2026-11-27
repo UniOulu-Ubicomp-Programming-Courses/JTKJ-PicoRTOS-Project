@@ -1,9 +1,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
-
+#include <stdbool.h>
 #include <pico/stdlib.h>
-
 #include <FreeRTOS.h>
 #include <semphr.h>
 #include <task.h>
@@ -16,9 +15,19 @@
 #define CDC_ITF_DATA 1
 
 #define MAX_MSG_LENGTH 64
-#define DEBUG_MSG_LENGTH 64
 
-enum state
+#define IMU_SAMPLE_PERIOD_MS 10
+
+#define IMU_ACCEL_FILTER_ALPHA 0.4f
+#define IMU_ACCEL_THRESHOLD_G 0.2f
+
+#define IMU_GYRO_FILTER_ALPHA 0.4f
+#define IMU_GYRO_THRESHOLD_DPS 600.0f
+
+#define IMU_ROTATION_CONFIRM_SAMPLES 5
+#define IMU_QUIET_CONFIRM_SAMPLES 50
+
+enum program_state
 {
     // IDLE-tilassa sensoria luetaan ja etsitään uutta liikettä.
     IDLE = 1,
@@ -30,22 +39,20 @@ enum state
     SUCCESS = 4
 };
 
-enum state programState = IDLE;
+enum program_state program_state = IDLE;
 
-char debugBuffer[DEBUG_MSG_LENGTH]; // vain tarpeellinen jos halutaan formatointia usb_serial_printiin
-
-char rxBuffer[MAX_MSG_LENGTH] = "\0";
-char txBuffer[MAX_MSG_LENGTH];
-int msgIndex = 0;
+char rx_buffer[MAX_MSG_LENGTH] = "\0";
+char tx_buffer[MAX_MSG_LENGTH];
+int msg_index = 0;
 
 typedef struct
 {
     uint32_t frequency;
     uint32_t length; // millisekuntia
-} Note;
+} note_t;
 
 // Super Mario 1-Up -ääni
-const Note kuittausmelodia[] = {
+const note_t OK_melody[] = {
     {659, 133},  // E5
     {784, 133},  // G5
     {1319, 133}, // E6
@@ -55,10 +62,44 @@ const Note kuittausmelodia[] = {
 };
 
 // Suojaa tilamuutujan ja I2C-väylän käyttöä useiden tehtävien välillä.
-SemaphoreHandle_t stateMutex;
-SemaphoreHandle_t i2cMutex;
+SemaphoreHandle_t state_mutex;
+SemaphoreHandle_t i2c_mutex;
 
-const char *get_state_string(enum state s)
+// Aapo Saari
+/// @brief Lisää IMU-merkin viestipuskuriin.
+/// @param symbol Lisättävä merkki ('.', '-' tai ' ').
+/// @return true, jos merkki lisättiin onnistuneesti, false jos puskuri on täynnä tai ohjelma ei ole IDLE-tilassa.
+static bool append_imu_symbol(char symbol)
+{
+    bool appended = false;
+
+    xSemaphoreTake(state_mutex, portMAX_DELAY);
+    if (program_state == IDLE)
+    {
+        if (msg_index < MAX_MSG_LENGTH - 4)
+        {
+            tx_buffer[msg_index++] = symbol;
+            appended = true;
+            if (msg_index >= MAX_MSG_LENGTH - 4)
+            {
+                program_state = SENDING;
+            }
+        }
+        else
+        {
+            program_state = SENDING;
+        }
+    }
+    xSemaphoreGive(state_mutex);
+
+    return appended;
+}
+
+// Konsta Turpeinen
+/// @brief Palauttaa tilan merkkijonona.
+/// @param s Tila, jonka merkkijono halutaan.
+/// @return Merkkijono, joka kuvaa tilaa.
+const char *get_state_string(enum program_state s)
 {
     switch (s)
     {
@@ -74,51 +115,53 @@ const char *get_state_string(enum state s)
     return "UNKNOWN";
 }
 
+// Konsta Turpeinen
 /// @brief UI-taski, joka hallinnoi käyttöliittymää, näyttöä, led-valoa ja summeria.
-/// @param pvParameters
-void ui_task(void *pvParameters)
+/// @param parameters
+void ui_task(void *parameters)
 {
-    int len_kuittausmelodia = sizeof(kuittausmelodia) / sizeof(kuittausmelodia[0]);
+    int OK_melody_length = sizeof(OK_melody) / sizeof(OK_melody[0]);
 
-    enum state current_state = IDLE;
-    enum state previous_state = IDLE;
+    enum program_state current_state = IDLE;
+    enum program_state previous_state = IDLE;
 
     // Alustetaan led ja summeri
     init_buzzer();
     init_led();
 
     // Alustetaan näyttö
-    xSemaphoreTake(i2cMutex, portMAX_DELAY);
+    xSemaphoreTake(i2c_mutex, portMAX_DELAY);
     init_display();
 
     clear_display();
     write_text_xy(0, 0, get_state_string(current_state));
-    write_text_xy(0, 14, rxBuffer);
-    xSemaphoreGive(i2cMutex);
+    write_text_xy(0, 14, rx_buffer);
+    xSemaphoreGive(i2c_mutex);
 
     while (1)
     {
         vTaskDelay(pdMS_TO_TICKS(50));
 
-        xSemaphoreTake(stateMutex, portMAX_DELAY);
-        current_state = programState;
-        xSemaphoreGive(stateMutex);
+        xSemaphoreTake(state_mutex, portMAX_DELAY);
+        current_state = program_state;
+        xSemaphoreGive(state_mutex);
 
         if (current_state != previous_state)
         {
             // Päivitetään näyttö
-            xSemaphoreTake(i2cMutex, portMAX_DELAY);
+            xSemaphoreTake(i2c_mutex, portMAX_DELAY);
             clear_display();
             write_text_xy(0, 0, get_state_string(current_state));
-            write_text_xy(0, 14, rxBuffer);
-            xSemaphoreGive(i2cMutex);
+            write_text_xy(0, 14, rx_buffer);
+            xSemaphoreGive(i2c_mutex);
 
             if (current_state == PLAY_BACK)
             {
                 // Toistetaan vastaanotettu viesti ledillä ja summerilla.
-                for (int i = 0; i < sizeof(rxBuffer) / sizeof(rxBuffer[0]); i++)
+                xSemaphoreTake(state_mutex, portMAX_DELAY);
+                for (int i = 0; i < sizeof(rx_buffer) / sizeof(rx_buffer[0]); i++)
                 {
-                    char c = rxBuffer[i];
+                    char c = rx_buffer[i];
 
                     // Lopetetaan toisto, jos tulee tyhjä merkki vastaan
                     if (c == '\0')
@@ -152,253 +195,248 @@ void ui_task(void *pvParameters)
                 }
 
                 // Palautetaan tila IDLE:ksi
-                xSemaphoreTake(stateMutex, portMAX_DELAY);
-                programState = IDLE;
-                xSemaphoreGive(stateMutex);
+                program_state = IDLE;
+                xSemaphoreGive(state_mutex);
             }
 
             else if (current_state == SUCCESS)
             {
                 // Käydään läpi kuittausmelodian kaikki nuotit
-                for (int i = 0; i < len_kuittausmelodia; i++)
+                for (int i = 0; i < OK_melody_length; i++)
                 {
-                    buzzer_play_tone(kuittausmelodia[i].frequency, kuittausmelodia[i].length - 20);
+                    buzzer_play_tone(OK_melody[i].frequency, OK_melody[i].length - 20);
                     vTaskDelay(pdMS_TO_TICKS(20));
                 }
 
                 // Muutetaan tila IDLE:ksi
-                xSemaphoreTake(stateMutex, portMAX_DELAY);
-                programState = IDLE;
+                xSemaphoreTake(state_mutex, portMAX_DELAY);
+                program_state = IDLE;
                 current_state = IDLE;
-                xSemaphoreGive(stateMutex);
+                xSemaphoreGive(state_mutex);
 
                 // Päivitetään näyttö
-                xSemaphoreTake(i2cMutex, portMAX_DELAY);
+                xSemaphoreTake(i2c_mutex, portMAX_DELAY);
                 clear_display();
                 write_text_xy(0, 0, get_state_string(current_state));
-                write_text_xy(0, 16, rxBuffer);
-                xSemaphoreGive(i2cMutex);
+                write_text_xy(0, 16, rx_buffer);
+                xSemaphoreGive(i2c_mutex);
             }
             previous_state = current_state;
         }
     }
 }
 
-/// @brief Sensoritaski, joka hakee kiihtyvyys- ja gyroskooppiarvot ja tarkistaa liikkeen.
-/// @param arg
-static void sensor_task(void *arg)
+// Aapo Saari
+/// @brief Alustaa IMU:n ja käsittelee sensorinäytteitä toistuvassa tunnistussilmukassa.
+/// @param parameters FreeRTOS-tehtävän käynnistysparametri, jota tämä tehtävä ei käytä.
+static void sensor_task(void *parameters)
 {
-    (void)arg;
+    (void)parameters;
 
-    xSemaphoreTake(stateMutex, portMAX_DELAY);
-    enum state current_state = programState;
-    xSemaphoreGive(stateMutex);
+    // Alustetaan sensori I2C-lukon suojassa ja lopetetaan tehtävä, jos käynnistys epäonnistuu.
+    xSemaphoreTake(i2c_mutex, portMAX_DELAY);
+    if (init_ICM42670() != 0)
+    {
+        usb_serial_print("ICM42670-sensorin alustus epäonnistui\n");
+        usb_serial_flush();
+        xSemaphoreGive(i2c_mutex);
+        vTaskDelete(NULL);
+        return;
+    }
 
-    // Edellisiä ja suodatettuja kiihtyvyysarvoja käytetään liikkeen havaitsemiseen.
-    float previous_ax, previous_ay;
-    float filtered_ax, filtered_ay;
-    float previous_gy, filtered_gy;
+    int start_result = ICM42670_enable_accel_gyro_ln_mode();
+    if (start_result == 0)
+    {
+        start_result = ICM42670_startAccel(
+            ICM42670_ACCEL_ODR_DEFAULT, ICM42670_ACCEL_FSR_DEFAULT);
+    }
+    if (start_result == 0)
+    {
+        start_result = ICM42670_startGyro(
+            ICM42670_GYRO_ODR_DEFAULT, 2000);
+    }
+    if (start_result != 0)
+    {
+        usb_serial_print("ICM42670-sensorin käynnistys epäonnistui\n");
+        usb_serial_flush();
+        xSemaphoreGive(i2c_mutex);
+        vTaskDelete(NULL);
+        return;
+    }
+    xSemaphoreGive(i2c_mutex);
 
-    const float accelerometer_threshold = 0.2f;
-    const float accelerometer_alpha = 0.4f;
-    const float gyroscope_threshold = 100.0f;
-    const float gyroscope_alpha = 0.4f;
+    TickType_t last_wake = xTaskGetTickCount();
 
+    // Säilytetään suodattimien vertailuarvot ja tunnistuksen tila näytteiden välillä.
+    float previous_accel_x = 0.0f;
+    float previous_accel_z = 0.0f;
+    float previous_gyro_y = 0.0f;
+
+    bool filter_initialized = false;
     bool is_moving = false;
 
-    // Y-akselin liike tuottaa pisteen, X-akselin liike viivan
-    // ja riittävän voimakas Y-akselin pyöräytys välilyönnin.
-    char detection_symbol;
+    char detected_symbol = '\0';
 
-    // Liikkeen on oltava rauhallinen usean näytteen ajan ennen merkin hyväksymistä.
     uint8_t debounce_counter = 0;
     uint8_t rotation_counter = 0;
 
-    // Alustetaan IMU ja otetaan kiihtyvyysanturi sekä gyroskooppi käyttöön.
-    xSemaphoreTake(i2cMutex, portMAX_DELAY);
-    if (init_ICM42670() != 0)
-    {
-        usb_serial_print((char const *)"Failed to initialize ICM42670\n\0");
-        usb_serial_flush();
-        xSemaphoreGive(i2cMutex);
-        vTaskDelete(NULL);
-        return;
-    }
-
-    if (ICM42670_start_with_default_values() != 0)
-    {
-        usb_serial_print((char const *)"Failed to start ICM42670\n\0");
-        usb_serial_flush();
-        xSemaphoreGive(i2cMutex);
-        vTaskDelete(NULL);
-        return;
-    }
-
-    // Ensimmäinen näyte alustaa vertailu- ja suodatusarvot.
-    if (ICM42670_read_sensor_data(&previous_ax, &previous_ay, NULL,
-                                  NULL, &previous_gy, NULL, NULL) != 0)
-    {
-        usb_serial_print((char const *)"Failed to read initial ICM42670 data\n\0");
-        usb_serial_flush();
-        xSemaphoreGive(i2cMutex);
-        vTaskDelete(NULL);
-        return;
-    }
-    xSemaphoreGive(i2cMutex);
-
-    // Säilyttää tasaisen 50 ms näytteenottovälin.
-    TickType_t last_wake = xTaskGetTickCount();
-
-    filtered_ax = previous_ax;
-    filtered_ay = previous_ay;
-    filtered_gy = previous_gy;
-
+    // Käsitellään näytteet tasaisin aikavälein koko tehtävän elinkaaren ajan.
     while (1)
     {
-        // Suojataan tilan luku ja muutos muilta tehtäviltä.
-        xSemaphoreTake(stateMutex, portMAX_DELAY);
-        current_state = programState;
-        xSemaphoreGive(stateMutex);
+        xSemaphoreTake(state_mutex, portMAX_DELAY);
+        enum program_state current_state = program_state;
+        xSemaphoreGive(state_mutex);
 
-        if (current_state == IDLE)
+        // Keskeytetään eleen tunnistus sovelluksen muiden tilojen ajaksi.
+        if (current_state != IDLE)
         {
-            float current_ax, current_ay;
-            float current_gy;
+            is_moving = false;
+            detected_symbol = '\0';
+            debounce_counter = 0;
+            rotation_counter = 0;
+            filter_initialized = false;
+            vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(IMU_SAMPLE_PERIOD_MS));
+            continue;
+        }
 
-            xSemaphoreTake(i2cMutex, portMAX_DELAY);
-            if (ICM42670_read_sensor_data(&current_ax, &current_ay, NULL, NULL, &current_gy, NULL, NULL) != 0)
+        float accel_x, accel_y, accel_z;
+        float gyro_x, gyro_y, gyro_z;
+        float temperature;
+
+        // Luetaan sensorin kaikki tulosarvot I2C-lukon aikana.
+        xSemaphoreTake(i2c_mutex, portMAX_DELAY);
+        int read_result = ICM42670_read_sensor_data(
+            &accel_x, &accel_y, &accel_z,
+            &gyro_x, &gyro_y, &gyro_z, &temperature);
+        xSemaphoreGive(i2c_mutex);
+
+        if (read_result != 0)
+        {
+            // Lukuhäiriön jälkeen hylätään keskeneräinen ele ja alustetaan suodatus uudelleen.
+            usb_serial_print("ICM42670-sensorin lukeminen epäonnistui\n");
+            usb_serial_flush();
+            is_moving = false;
+            detected_symbol = '\0';
+            debounce_counter = 0;
+            rotation_counter = 0;
+            filter_initialized = false;
+            vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(IMU_SAMPLE_PERIOD_MS));
+            continue;
+        }
+
+        if (!filter_initialized)
+        {
+            // Ensimmäinen näyte asettaa suodattimien lähtötason, eikä sitä tulkita liikkeeksi.
+            previous_accel_x = accel_x;
+            previous_accel_z = accel_z;
+            previous_gyro_y = gyro_y;
+            filter_initialized = true;
+            vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(IMU_SAMPLE_PERIOD_MS));
+            continue;
+        }
+
+        // Tasataan mittauskohinaa ja lasketaan kiihtyvyyden muutos edelliseen suodatettuun näytteeseen.
+        const float filtered_accel_x =
+            IMU_ACCEL_FILTER_ALPHA * accel_x +
+            (1.0f - IMU_ACCEL_FILTER_ALPHA) * previous_accel_x;
+
+        const float filtered_accel_z =
+            IMU_ACCEL_FILTER_ALPHA * accel_z +
+            (1.0f - IMU_ACCEL_FILTER_ALPHA) * previous_accel_z;
+
+        const float filtered_gyro_y =
+            IMU_GYRO_FILTER_ALPHA * gyro_y +
+            (1.0f - IMU_GYRO_FILTER_ALPHA) * previous_gyro_y;
+
+        const float delta_accel_x = fabsf(filtered_accel_x - previous_accel_x);
+        const float delta_accel_z = fabsf(filtered_accel_z - previous_accel_z);
+        const float rotation_speed = fabsf(filtered_gyro_y);
+
+        // Uuden eleen alussa gyro tunnistaa pyörähdyksen ja kiihtyvyys akseliliikkeen.
+        if (!is_moving)
+        {
+            // Pyörähdys tarkistetaan ensin, jotta välilyönti ei sekoitu akseliliikkeeseen.
+            if (rotation_speed > IMU_GYRO_THRESHOLD_DPS)
             {
-                usb_serial_print((char const *)"Failed to read ICM42670 data\n\0");
-                usb_serial_flush();
-                xSemaphoreGive(i2cMutex);
-                vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(10));
-                continue;
-            }
-            xSemaphoreGive(i2cMutex);
-
-            // Suodatus vähentää mittauskohinaa ennen liikkeen tunnistamista.
-            filtered_gy = gyroscope_alpha * current_gy + (1 - gyroscope_alpha) * previous_gy;
-            float rotation_speed = fabs(filtered_gy);
-
-            filtered_ax = accelerometer_alpha * current_ax + (1 - accelerometer_alpha) * previous_ax;
-            filtered_ay = accelerometer_alpha * current_ay + (1 - accelerometer_alpha) * previous_ay;
-            float delta_ax = fabs(filtered_ax - previous_ax);
-            float delta_ay = fabs(filtered_ay - previous_ay);
-
-            if (!is_moving)
-            {
-                // Tunnistetaan pyöräytys ennen pisteen tai viivan tunnistamista.
-                if (rotation_speed > gyroscope_threshold)
+                rotation_counter++;
+                if (rotation_counter >= IMU_ROTATION_CONFIRM_SAMPLES)
                 {
-                    rotation_counter++;
-
-                    if (rotation_counter >= 3)
+                    detected_symbol = ' ';
+                    is_moving = true;
+                    rotation_counter = 0;
+                    debounce_counter = 0;
+                }
+            }
+            else if (delta_accel_z > IMU_ACCEL_THRESHOLD_G)
+            {
+                detected_symbol = '.';
+                is_moving = true;
+                rotation_counter = 0;
+                debounce_counter = 0;
+            }
+            else if (delta_accel_x > IMU_ACCEL_THRESHOLD_G)
+            {
+                detected_symbol = '-';
+                is_moving = true;
+                rotation_counter = 0;
+                debounce_counter = 0;
+            }
+            else
+            {
+                rotation_counter = 0;
+            }
+        }
+        else if (delta_accel_x < IMU_ACCEL_THRESHOLD_G &&
+                 delta_accel_z < IMU_ACCEL_THRESHOLD_G &&
+                 rotation_speed < IMU_GYRO_THRESHOLD_DPS)
+        {
+            debounce_counter++;
+            if (debounce_counter >= IMU_QUIET_CONFIRM_SAMPLES)
+            {
+                // Lisätään merkki puskuriin vasta riittävän pitkän rauhallisen jakson jälkeen.
+                if (append_imu_symbol(detected_symbol))
+                {
+                    if (detected_symbol == ' ')
                     {
-                        detection_symbol = ' ';
-                        is_moving = true;
-
-                        snprintf(debugBuffer, DEBUG_MSG_LENGTH, "Movement detected: '%c'\n", detection_symbol);
-                        usb_serial_print(debugBuffer);
-                        usb_serial_flush();
-
-                        rotation_counter = 0;
+                        buzzer_play_tone(1282, 300);
+                    }
+                    else if (detected_symbol == '.')
+                    {
+                        buzzer_play_tone(641, 100);
+                    }
+                    else if (detected_symbol == '-')
+                    {
+                        buzzer_play_tone(641, 300);
                     }
                 }
-                else if (delta_ay > accelerometer_threshold && delta_ay > delta_ax)
-                {
-                    detection_symbol = '.';
-                    is_moving = true;
-
-                    snprintf(debugBuffer, DEBUG_MSG_LENGTH, "Movement detected: '%c'\n", detection_symbol);
-                    usb_serial_print(debugBuffer);
-                    usb_serial_flush();
-
-                    rotation_counter = 0;
-                    debounce_counter = 0;
-                }
-                else if (delta_ax > accelerometer_threshold)
-                {
-                    detection_symbol = '-';
-                    is_moving = true;
-
-                    snprintf(debugBuffer, DEBUG_MSG_LENGTH, "Movement detected: '%c'\n", detection_symbol);
-                    usb_serial_print(debugBuffer);
-                    usb_serial_flush();
-
-                    rotation_counter = 0;
-                    debounce_counter = 0;
-                }
-                else
-                {
-                    rotation_counter = 0;
-                }
+                is_moving = false;
+                detected_symbol = '\0';
+                debounce_counter = 0;
             }
-            else if (is_moving)
-            {
-                // Lähetetään merkki vasta, kun laite on ollut rauhallinen 250 ms ajan.
-                if (delta_ax < accelerometer_threshold && delta_ay < accelerometer_threshold && rotation_speed < gyroscope_threshold)
-                {
-                    debounce_counter++;
-                    if (debounce_counter >= 25)
-                    {
-                        // Lähetetään merkki, kun laite on ollut rauhallinen tarpeeksi kauan.
-                        xSemaphoreTake(stateMutex, portMAX_DELAY);
-                        if (msgIndex < MAX_MSG_LENGTH - 4)
-                        {
-                            txBuffer[msgIndex++] = detection_symbol;
-                            is_moving = false;
-
-                            if (msgIndex >= MAX_MSG_LENGTH - 4)
-                            {
-                                programState = SENDING; // Vaihdetaan tilaksi SENDING, jotta viesti lähetetään
-                                xSemaphoreGive(stateMutex);
-                                usb_serial_print((char const *)"Transmit buffer full\n\0");
-                                usb_serial_flush();
-                            }
-                            else
-                            {
-                                xSemaphoreGive(stateMutex);
-                            }
-                        }
-                        else
-                        {
-                            xSemaphoreGive(stateMutex);
-                        }
-
-                        rotation_counter = 0;
-                        debounce_counter = 0;
-                    }
-                }
-                else
-                {
-                    rotation_counter = 0;
-                    debounce_counter = 0;
-                }
-            }
-            // Käytetään suodatettua näytettä seuraavan kierroksen vertailuarvona.
-            previous_ax = filtered_ax;
-            previous_ay = filtered_ay;
-            previous_gy = filtered_gy;
         }
         else
         {
-            is_moving = false;
-            rotation_counter = 0;
             debounce_counter = 0;
         }
-        // Odotetaan seuraavaan näytteenottohetkeen.
-        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(10));
+
+        // Käytetään tämän kierroksen suodatettuja arvoja seuraavan näytteen vertailutasona.
+        previous_accel_x = filtered_accel_x;
+        previous_accel_z = filtered_accel_z;
+        previous_gyro_y = filtered_gyro_y;
+        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(IMU_SAMPLE_PERIOD_MS));
     }
 }
 
+// Meeko Röning
 /// @brief Painikkeen keskeytyskäsittelijä.
 /// @param gpio
 /// @param events
 void button_callback(uint gpio, uint32_t events)
 {
-    programState = SENDING;
+    program_state = SENDING;
 }
 
+// Meeko Röning
 /// @brief USB-taski, joka hoitaa USB-pinon.
 /// @param arg
 void usb_task(void *arg)
@@ -411,7 +449,8 @@ void usb_task(void *arg)
     }
 }
 
-/// @brief Lähettää viesti bufferin sisällön.
+// Meeko Röning
+/// @brief Lähettää viestipuskurin sisällön.
 /// @param arg
 void transmit_task(void *arg)
 {
@@ -419,50 +458,54 @@ void transmit_task(void *arg)
 
     while (1)
     {
-        xSemaphoreTake(stateMutex, portMAX_DELAY);
-        if (programState == SENDING && msgIndex != 0)
+        xSemaphoreTake(state_mutex, portMAX_DELAY);
+        if (program_state == SENDING && msg_index != 0)
         {
-            txBuffer[msgIndex++] = ' ';
-            txBuffer[msgIndex++] = ' ';
-            txBuffer[msgIndex++] = '\n'; // Lisää välit ja rivinvaihto viestin loppuun
-            tud_cdc_n_write(CDC_ITF_DATA, txBuffer, sizeof(char) * msgIndex);
+            tx_buffer[msg_index++] = ' ';
+            tx_buffer[msg_index++] = ' ';
+            tx_buffer[msg_index++] = '\n'; // Lisää välit ja rivinvaihto viestin loppuun
+            tud_cdc_n_write(CDC_ITF_DATA, tx_buffer, sizeof(char) * msg_index);
             tud_cdc_n_write_flush(CDC_ITF_DATA);
             // Resetoi viestin indeksi seuraavaa viestiä varten
-            msgIndex = 0;
-            programState = SUCCESS;
+            msg_index = 0;
+            program_state = SUCCESS;
         }
-        else if (programState == SENDING && msgIndex == 0)
+        else if (program_state == SENDING && msg_index == 0)
         {
-            programState = IDLE;
+            program_state = IDLE;
         }
-        xSemaphoreGive(stateMutex);
+        xSemaphoreGive(state_mutex);
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
+// Meeko Röning
 /// @brief USB-vastaanottokäsittelijä.
 /// @param itf
 void tud_cdc_rx_cb(uint8_t itf)
 {
-    char tempBuffer[4];
-    static uint8_t rxIndex = 0;
+    char temp_buffer[4];
+    static uint8_t rx_index = 0;
     // Vastaan otetaan itf:stä riippumatta, jotta bufferit tyhjenee.
-    uint32_t count = tud_cdc_n_read(itf, tempBuffer, sizeof(tempBuffer));
-    
+    uint32_t count = tud_cdc_n_read(itf, temp_buffer, sizeof(temp_buffer));
+
     // Käsitellään vain CDC_ITF_DATA-liitännän kautta tuleva data.
     if (itf == CDC_ITF_DATA)
     {
-        if (rxIndex < MAX_MSG_LENGTH - 1 && count != 3) //vain lopetus viesti 3 pitkä
+        xSemaphoreTake(state_mutex, portMAX_DELAY);
+        if (rx_index < MAX_MSG_LENGTH - 1 && count != 3) // vain lopetusviesti 3 pitkä
         {
-            rxBuffer[rxIndex++] = tempBuffer[0];
+            rx_buffer[rx_index++] = temp_buffer[0];
         }
-        else 
+        else
         {
-            rxBuffer[rxIndex] = '\0'; // Lopetetaan merkkijono
-            rxIndex = 0; // Resetoi indeksi seuraavaa viestiä varten
+            rx_buffer[rx_index] = '\0'; // Lopetetaan merkkijono
+            rx_index = 0;               // Resetoi indeksi seuraavaa viestiä varten
+
             // Vahidetaan tilaksi PLAY_BACK, jotta ui_task voi käsitellä vastaanotetun datan.
-            programState = PLAY_BACK;
+            program_state = PLAY_BACK;
         }
+        xSemaphoreGive(state_mutex);
     }
 }
 
@@ -480,76 +523,76 @@ int main()
     tusb_init();
     usb_serial_init();
 
-    // Mutex estää samanaikaiset ristiriitaiset programState ja I2C -muutokset.
-    stateMutex = xSemaphoreCreateMutex();
-    if (stateMutex == NULL)
+    // Mutex estää samanaikaiset ristiriitaiset program_state ja I2C -muutokset.
+    state_mutex = xSemaphoreCreateMutex();
+    if (state_mutex == NULL)
     {
-        usb_serial_print((char const *)"Failed to create state mutex\n\0");
+        usb_serial_print((char const *)"Tilalukon luonti epäonnistui\n\0");
         usb_serial_flush();
         return 0;
     }
 
-    i2cMutex = xSemaphoreCreateMutex();
-    if (i2cMutex == NULL)
+    i2c_mutex = xSemaphoreCreateMutex();
+    if (i2c_mutex == NULL)
     {
-        usb_serial_print((char const *)"Failed to create I2C mutex\n\0");
+        usb_serial_print((char const *)"I2C-lukon luonti epäonnistui\n\0");
         usb_serial_flush();
         return 0;
     }
 
     // Luodaan RTOS tehtävät ja tarkistetaan että ne onnistui
-    BaseType_t uiTaskResult = xTaskCreate(
+    BaseType_t ui_task_result = xTaskCreate(
         ui_task,
         "ui",
         DEFAULT_STACK_SIZE,
         NULL,
         1,
         NULL);
-    if (uiTaskResult != pdPASS)
+    if (ui_task_result != pdPASS)
     {
-        usb_serial_print((char const *)"UI task creation failed\n\0");
+        usb_serial_print((char const *)"Käyttöliittymätehtävän luonti epäonnistui\n\0");
         usb_serial_flush();
         return 0;
     }
 
-    BaseType_t sensorTaskResult = xTaskCreate(
+    BaseType_t sensor_task_result = xTaskCreate(
         sensor_task,
         "sensor",
         DEFAULT_STACK_SIZE,
         NULL,
         2,
         NULL);
-    if (sensorTaskResult != pdPASS)
+    if (sensor_task_result != pdPASS)
     {
-        usb_serial_print((char const *)"Sensor task creation failed\n\0");
+        usb_serial_print((char const *)"Sensoritehtävän luonti epäonnistui\n\0");
         usb_serial_flush();
         return 0;
     }
 
-    BaseType_t usbTaskResult = xTaskCreate(
+    BaseType_t usb_task_result = xTaskCreate(
         usb_task,
         "usb",
         DEFAULT_STACK_SIZE,
         NULL,
         3, // Suurempi prioriteetti kuin muilla tehtävillä
         NULL);
-    if (usbTaskResult != pdPASS)
+    if (usb_task_result != pdPASS)
     {
-        usb_serial_print((char const *)"USB task creation failed\n\0");
+        usb_serial_print((char const *)"USB-tehtävän luonti epäonnistui\n\0");
         usb_serial_flush();
         return 0;
     }
 
-    BaseType_t transmitTaskResult = xTaskCreate(
+    BaseType_t transmit_task_result = xTaskCreate(
         transmit_task,
         "transmit",
         DEFAULT_STACK_SIZE,
         NULL,
         2,
         NULL);
-    if (transmitTaskResult != pdPASS)
+    if (transmit_task_result != pdPASS)
     {
-        usb_serial_print((char const *)"Transmit task creation failed\n\0");
+        usb_serial_print((char const *)"Lähetystehtävän luonti epäonnistui\n\0");
         usb_serial_flush();
         return 0;
     }
